@@ -21,11 +21,13 @@ class SizeQuantityInputDialog:
         self.current_quantities = current_quantities or {}
         self.quantity_entries: Dict[str, tk.Entry] = {}
         self.quantities: Dict[str, int] = {}
+        self.canvas: Optional[tk.Canvas] = None
 
         self.worksheet = worksheet
         self.total_qty: Optional[int] = None
         self.items_per_box: Optional[int] = None
         self.box_count_label: Optional[ttk.Label] = None
+        self.total_qty_label: Optional[ttk.Label] = None
 
         if worksheet is not None:
             self.total_qty = self._read_total_qty_from_excel(worksheet)
@@ -152,15 +154,34 @@ class SizeQuantityInputDialog:
 
     def _update_box_count_display(self, event=None) -> None:
         """
-        Cập nhật hiển thị số thùng cần đóng trên UI.
+        Cập nhật hiển thị số thùng cần đóng và tổng số lượng đã nhập trên UI.
 
         Method này được gọi mỗi khi user nhập/xóa số lượng trong Entry.
-        Màu xanh nếu box_count > 0, màu xám nếu = 0.
+        - box_count: Màu xanh nếu > 0, màu xám nếu = 0
+        - total_qty: Màu xanh dương nếu > 0, màu xám nếu = 0
 
         Args:
             event: Tkinter event object (không sử dụng, chỉ để bind event)
         """
         try:
+            total_qty = 0
+            for entry in self.quantity_entries.values():
+                value = entry.get().strip()
+                if value.isdigit():
+                    total_qty += int(value)
+
+            if self.total_qty_label:
+                if total_qty > 0:
+                    self.total_qty_label.config(
+                        text=f"Tổng số lượng đã nhập: {total_qty} cái",
+                        foreground='blue'
+                    )
+                else:
+                    self.total_qty_label.config(
+                        text="Tổng số lượng đã nhập: 0 cái",
+                        foreground='gray'
+                    )
+
             if not self.box_count_label:
                 return
 
@@ -179,6 +200,42 @@ class SizeQuantityInputDialog:
 
         except Exception as e:
             logger.error(f"Lỗi khi update box count display: {e}", exc_info=True)
+
+    def _on_canvas_mouse_wheel(self, event) -> None:
+        """
+        Xử lý sự kiện cuộn chuột để scroll canvas (Windows/macOS).
+
+        Args:
+            event: Mouse wheel event object
+        """
+        try:
+            if not self.canvas:
+                return
+
+            if event.delta > 0:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.delta < 0:
+                self.canvas.yview_scroll(1, "units")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý canvas mouse wheel: {e}", exc_info=True)
+
+    def _on_canvas_mouse_wheel_linux(self, event, direction: int) -> None:
+        """
+        Xử lý sự kiện cuộn chuột để scroll canvas (Linux).
+
+        Args:
+            event: Mouse event object
+            direction: 1 (scroll up) hoặc -1 (scroll down)
+        """
+        try:
+            if not self.canvas:
+                return
+
+            self.canvas.yview_scroll(-direction, "units")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý canvas mouse wheel Linux: {e}", exc_info=True)
     
     def _create_widgets(self) -> None:
         header_frame = ttk.Frame(self.dialog)
@@ -196,21 +253,28 @@ class SizeQuantityInputDialog:
             font=('Arial', 9),
             foreground='gray'
         ).pack(anchor=tk.W, pady=(5, 0))
+
+        ttk.Label(
+            header_frame,
+            text="💡 Mẹo: Cuộn chuột để scroll danh sách",
+            font=('Arial', 8),
+            foreground='#0066cc'
+        ).pack(anchor=tk.W, pady=(2, 0))
         
         scroll_frame = ttk.LabelFrame(self.dialog, text="Số Lượng Từng Size", padding=10)
         scroll_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-        
-        canvas = tk.Canvas(scroll_frame, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL, command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
+
+        self.canvas = tk.Canvas(scroll_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        scrollable_frame = ttk.Frame(self.canvas)
+
         scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor=tk.NW)
-        canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.canvas.create_window((0, 0), window=scrollable_frame, anchor=tk.NW)
+        self.canvas.configure(yscrollcommand=scrollbar.set)
         
         for idx, size in enumerate(self.selected_sizes):
             row_frame = ttk.Frame(scrollable_frame)
@@ -237,9 +301,13 @@ class SizeQuantityInputDialog:
                 text="thùng",
                 foreground='gray'
             ).pack(side=tk.LEFT)
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.bind('<MouseWheel>', self._on_canvas_mouse_wheel)
+        self.canvas.bind('<Button-4>', lambda e: self._on_canvas_mouse_wheel_linux(e, 1))
+        self.canvas.bind('<Button-5>', lambda e: self._on_canvas_mouse_wheel_linux(e, -1))
 
         if self.items_per_box is not None:
             box_count_frame = ttk.LabelFrame(self.dialog, text="Thông Tin Đóng Gói", padding=10)
@@ -250,6 +318,13 @@ class SizeQuantityInputDialog:
                 text=f"Số lượng mỗi thùng: {self.items_per_box}",
                 foreground='gray'
             ).pack(anchor=tk.W)
+
+            self.total_qty_label = ttk.Label(
+                box_count_frame,
+                text="Tổng số lượng đã nhập: 0 cái",
+                foreground='gray'
+            )
+            self.total_qty_label.pack(anchor=tk.W, pady=(5, 0))
 
             self.box_count_label = ttk.Label(
                 box_count_frame,
