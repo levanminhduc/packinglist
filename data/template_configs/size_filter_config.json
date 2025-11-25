@@ -1,0 +1,8 @@
+{
+  "size_filter_config": {
+    "column": "F",
+    "start_row": 19,
+    "end_row": 59,
+    "sheet_name": "Sheet1"
+  }
+}

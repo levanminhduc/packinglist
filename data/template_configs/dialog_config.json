@@ -1,0 +1,22 @@
+{
+  "dialogs": {
+    "po_update": {
+      "width": 298,
+      "height": 259
+    },
+    "color_code_update": {
+      "width": 301,
+      "height": 354
+    },
+    "size_filter_config": {
+      "width": 450,
+      "height": 550
+    }
+  },
+  "main_window": {
+    "width": 563,
+    "height": 791,
+    "x": 1043,
+    "y": 91
+  }
+}

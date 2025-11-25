@@ -1,0 +1,64 @@
+{
+  "sheet_name": "Packing List",
+  "single_values": {
+    "B2": {
+      "source_column": "PO",
+      "description": "Purchase Order Number"
+    },
+    "B3": {
+      "source_column": "Buyer",
+      "description": "Buyer Name"
+    },
+    "B4": {
+      "source_column": "ShipDate",
+      "description": "Shipping Date"
+    }
+  },
+  "table": {
+    "start_cell": "A7",
+    "columns": {
+      "A": {
+        "source_column": "Style",
+        "header": "Style"
+      },
+      "B": {
+        "source_column": "Color",
+        "header": "Color"
+      },
+      "C": {
+        "source_column": "Size",
+        "header": "Size"
+      },
+      "D": {
+        "source_column": "Quantity",
+        "header": "Quantity"
+      },
+      "E": {
+        "source_column": "Carton",
+        "header": "Carton"
+      }
+    }
+  },
+  "auto_sum": {
+    "columns": ["D", "E"],
+    "description": "Automatically sum Quantity and Carton columns"
+  },
+  "formatting": {
+    "header_row": 7,
+    "header_style": {
+      "bg_color": "366092",
+      "font_color": "FFFFFF",
+      "bold": true,
+      "font_size": 11
+    },
+    "data_style": {
+      "border": "thin",
+      "alignment": "center"
+    },
+    "total_row_style": {
+      "bg_color": "D9E1F2",
+      "bold": true
+    }
+  }
+}
+

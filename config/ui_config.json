@@ -1,0 +1,27 @@
+{
+    "window": {
+        "width": 1920,
+        "height": 987,
+        "position_x": 100,
+        "position_y": 50,
+        "maximized": true
+    },
+    "table": {
+        "column_width": 150,
+        "row_height": 25,
+        "header_height": 30,
+        "font_family": "Arial",
+        "font_size": 10,
+        "show_grid": true
+    },
+    "theme": {
+        "mode": "light",
+        "primary_color": "#1f538d",
+        "background_color": "#ffffff",
+        "text_color": "#000000"
+    },
+    "recent_files": [
+        "D:/DuAnMoi/ExcelMauPackingList/TUẦN 36.xlsx"
+    ],
+    "last_opened_file": "D:/DuAnMoi/ExcelMauPackingList/TUẦN 36.xlsx"
+}

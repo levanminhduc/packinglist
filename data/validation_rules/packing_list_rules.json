@@ -1,0 +1,111 @@
+{
+  "PO": [
+    {
+      "type": "required",
+      "error_message": "Số PO là bắt buộc"
+    },
+    {
+      "type": "regex",
+      "params": {
+        "pattern": "^PO\\d{7}$"
+      },
+      "error_message": "Số PO phải có định dạng PO + 7 chữ số (ví dụ: PO1234567)"
+    }
+  ],
+  "Style": [
+    {
+      "type": "required",
+      "error_message": "Style là bắt buộc"
+    },
+    {
+      "type": "length",
+      "params": {
+        "min_length": 3,
+        "max_length": 20
+      },
+      "error_message": "Style phải có độ dài từ 3 đến 20 ký tự"
+    }
+  ],
+  "Color": [
+    {
+      "type": "required",
+      "error_message": "Color là bắt buộc"
+    }
+  ],
+  "Size": [
+    {
+      "type": "required",
+      "error_message": "Size là bắt buộc"
+    },
+    {
+      "type": "in_set",
+      "params": {
+        "allowed_values": ["XS", "S", "M", "L", "XL", "XXL", "XXXL"],
+        "case_sensitive": false
+      },
+      "error_message": "Size phải là một trong các giá trị: XS, S, M, L, XL, XXL, XXXL"
+    }
+  ],
+  "Quantity": [
+    {
+      "type": "required",
+      "error_message": "Quantity là bắt buộc"
+    },
+    {
+      "type": "type",
+      "params": {
+        "expected_type": "int"
+      },
+      "error_message": "Quantity phải là số nguyên"
+    },
+    {
+      "type": "range",
+      "params": {
+        "min_value": 1,
+        "max_value": 100000
+      },
+      "error_message": "Quantity phải nằm trong khoảng từ 1 đến 100,000"
+    }
+  ],
+  "ShipDate": [
+    {
+      "type": "required",
+      "error_message": "ShipDate là bắt buộc"
+    },
+    {
+      "type": "date",
+      "params": {
+        "date_format": "%Y-%m-%d"
+      },
+      "error_message": "ShipDate phải có định dạng YYYY-MM-DD (ví dụ: 2025-12-31)"
+    }
+  ],
+  "Buyer": [
+    {
+      "type": "required",
+      "error_message": "Buyer là bắt buộc"
+    }
+  ],
+  "Carton": [
+    {
+      "type": "required",
+      "error_message": "Carton là bắt buộc"
+    },
+    {
+      "type": "type",
+      "params": {
+        "expected_type": "int"
+      },
+      "error_message": "Carton phải là số nguyên"
+    },
+    {
+      "type": "range",
+      "params": {
+        "min_value": 1,
+        "max_value": 10000
+      },
+      "error_message": "Carton phải nằm trong khoảng từ 1 đến 10,000"
+    }
+  ]
+}
+

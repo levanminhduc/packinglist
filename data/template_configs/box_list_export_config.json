@@ -1,0 +1,17 @@
+{
+  "box_list_export_config": {
+    "box_start_row": 15,
+    "box_end_row": 16,
+    "size_column": "F",
+    "size_data_start_row": 19,
+    "size_data_end_row": 59,
+    "combined_size_separator": "/",
+    "enable_combined_detection": true,
+    "sort_combined_sizes": true,
+    "po_cell_row": 19,
+    "po_cell_column": "A",
+    "max_rows_per_column": 45,
+    "header_rows": 2
+  }
+}
+
