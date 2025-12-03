@@ -28,6 +28,12 @@ from excel_automation.size_filter import SizeFilterManager
 from excel_automation.size_filter_config import SizeFilterConfig
 from excel_automation.excel_com_manager import ExcelCOMManager
 from excel_automation.utils import get_size_sort_key
+from excel_automation.carton_allocation_calculator import (
+    CartonAllocationCalculator,
+    SizeAllocation,
+    CombinedCarton,
+    AllocationResult
+)
 
 __all__ = [
     "ExcelReader",
@@ -51,5 +57,9 @@ __all__ = [
     "SizeFilterConfig",
     "ExcelCOMManager",
     "get_size_sort_key",
+    "CartonAllocationCalculator",
+    "SizeAllocation",
+    "CombinedCarton",
+    "AllocationResult",
 ]
 

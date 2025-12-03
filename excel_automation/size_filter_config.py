@@ -1,14 +1,15 @@
 import json
-from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 import copy
+
+from excel_automation.path_helper import get_config_path
 
 logger = logging.getLogger(__name__)
 
 
 class SizeFilterConfig:
-    
+
     DEFAULT_CONFIG = {
         "size_filter_config": {
             "column": "F",
@@ -17,9 +18,9 @@ class SizeFilterConfig:
             "sheet_name": "Sheet1"
         }
     }
-    
+
     def __init__(self, config_file: str = "data/template_configs/size_filter_config.json"):
-        self.config_file = Path(config_file)
+        self.config_file = get_config_path(config_file)
         self.config: Dict[str, Any] = {}
         self._load_config()
     

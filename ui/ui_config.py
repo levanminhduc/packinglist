@@ -1,13 +1,14 @@
 import json
-from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
+
+from excel_automation.path_helper import get_config_path
 
 logger = logging.getLogger(__name__)
 
 
 class UIConfig:
-    
+
     DEFAULT_CONFIG = {
         "window": {
             "width": 1200,
@@ -33,9 +34,9 @@ class UIConfig:
         "recent_files": [],
         "last_opened_file": None
     }
-    
+
     def __init__(self, config_file: str = "config/ui_config.json"):
-        self.config_file = Path(config_file)
+        self.config_file = get_config_path(config_file)
         self.config: Dict[str, Any] = {}
         self._load_config()
     

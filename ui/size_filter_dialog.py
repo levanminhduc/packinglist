@@ -2,23 +2,30 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict
 
+from excel_automation.dialog_config_manager import DialogConfigManager
+
 
 class SizeFilterDialog:
-    
+
     def __init__(self, parent: tk.Tk, available_sizes: List[str]):
         self.parent = parent
         self.available_sizes = available_sizes
         self.checkboxes: Dict[str, tk.BooleanVar] = {}
         self.selected_sizes: List[str] = []
-        
+        self.dialog_config = DialogConfigManager()
+
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Lọc Size")
-        self.dialog.geometry("600x500")
+
+        width, height = self.dialog_config.get_dialog_size('size_filter')
+        self.dialog.geometry(f"{width}x{height}")
         self.dialog.resizable(True, True)
-        
+
         self.dialog.transient(parent)
         self.dialog.grab_set()
-        
+
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_closing)
+
         self._create_widgets()
         self._center_window()
     
@@ -117,10 +124,10 @@ class SizeFilterDialog:
         ttk.Button(
             action_frame,
             text="Hủy",
-            command=self.dialog.destroy,
+            command=self._on_closing,
             width=15
         ).pack(side=tk.RIGHT)
-    
+
     def _select_all(self) -> None:
         for var in self.checkboxes.values():
             var.set(True)
@@ -134,7 +141,7 @@ class SizeFilterDialog:
             size for size, var in self.checkboxes.items()
             if var.get()
         ]
-        
+
         if not self.selected_sizes:
             response = messagebox.askyesno(
                 "Cảnh báo",
@@ -144,8 +151,21 @@ class SizeFilterDialog:
             )
             if not response:
                 return
-        
-        self.dialog.destroy()
+
+        self._save_size_and_close()
+
+    def _on_closing(self) -> None:
+        self._save_size_and_close()
+
+    def _save_size_and_close(self) -> None:
+        try:
+            width = self.dialog.winfo_width()
+            height = self.dialog.winfo_height()
+            self.dialog_config.save_dialog_size('size_filter', width, height)
+        except Exception:
+            pass
+        finally:
+            self.dialog.destroy()
     
     def get_selected_sizes(self) -> List[str]:
         return self.selected_sizes

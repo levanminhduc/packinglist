@@ -1,8 +1,10 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from win32com.client import CDispatch
 import logging
 
 from excel_automation.size_filter_config import SizeFilterConfig
+from excel_automation.carton_allocation_calculator import AllocationResult
+from excel_automation.utils import get_size_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -163,3 +165,151 @@ class SizeQuantityDisplayManager:
             result = result * 26 + (ord(char) - ord('A') + 1)
         return result
 
+    def _has_formula(self, worksheet: CDispatch, row: int, column: int) -> bool:
+        try:
+            cell = worksheet.Cells(row, column)
+            if cell.HasFormula:
+                return True
+            return False
+        except Exception:
+            return False
+
+    def write_allocated_quantities_to_excel(
+        self,
+        excel_app: CDispatch,
+        worksheet: CDispatch,
+        allocation_result: AllocationResult,
+        selected_sizes: List[str],
+        size_column: str,
+        start_row: Optional[int] = None,
+        end_row: Optional[int] = None,
+        box_start_row: int = 15,
+        box_end_row: int = 16
+    ) -> Tuple[int, int]:
+        start_row = start_row or self.config.get_start_row()
+        end_row = end_row or self.config.get_end_row()
+
+        size_row_mapping = self._get_size_row_mapping(
+            worksheet,
+            size_column,
+            start_row,
+            end_row
+        )
+
+        sorted_sizes = sorted(selected_sizes, key=get_size_sort_key)
+
+        column_assignments: List[Dict] = []
+        current_box = 1
+        current_column = 7
+
+        for size in sorted_sizes:
+            if size not in allocation_result.allocations:
+                continue
+
+            alloc = allocation_result.allocations[size]
+            if alloc.full_boxes > 0:
+                box_start = current_box
+                box_end = current_box + alloc.full_boxes - 1
+
+                column_assignments.append({
+                    'type': 'full',
+                    'size': size,
+                    'column': current_column,
+                    'quantity': alloc.full_qty,
+                    'box_start': box_start,
+                    'box_end': box_end
+                })
+
+                current_box = box_end + 1
+                current_column += 1
+
+        for i, carton in enumerate(allocation_result.combined_cartons):
+            box_start = current_box
+            box_end = current_box
+
+            for size in carton.sizes:
+                if size in size_row_mapping:
+                    column_assignments.append({
+                        'type': 'combined',
+                        'size': size,
+                        'column': current_column,
+                        'quantity': carton.quantities[size],
+                        'box_start': box_start,
+                        'box_end': box_end,
+                        'carton_index': i
+                    })
+
+            current_box += 1
+            current_column += 1
+
+        written_count = 0
+        columns_used = 0
+
+        try:
+            excel_app.ScreenUpdating = False
+
+            processed_columns = set()
+
+            for assignment in column_assignments:
+                size = assignment['size']
+                column_number = assignment['column']
+                quantity = assignment['quantity']
+                box_start = assignment['box_start']
+                box_end = assignment['box_end']
+
+                if size not in size_row_mapping:
+                    logger.warning(f"Size {size} khong tim thay trong mapping")
+                    continue
+
+                row_number = size_row_mapping[size][0]
+
+                worksheet.Cells(row_number, column_number).Value = quantity
+                logger.info(
+                    f"Da ghi size {size}: {quantity} pcs vao cell "
+                    f"({row_number}, {column_number})"
+                )
+                written_count += 1
+
+                if column_number not in processed_columns:
+                    start_has_formula = self._has_formula(
+                        worksheet, box_start_row, column_number
+                    )
+                    end_has_formula = self._has_formula(
+                        worksheet, box_end_row, column_number
+                    )
+
+                    if not start_has_formula:
+                        worksheet.Cells(box_start_row, column_number).Value = box_start
+                    else:
+                        logger.info(
+                            f"Bo qua ghi dong {box_start_row} cot {column_number} "
+                            f"vi co cong thuc"
+                        )
+
+                    if not end_has_formula:
+                        worksheet.Cells(box_end_row, column_number).Value = box_end
+                    else:
+                        logger.info(
+                            f"Bo qua ghi dong {box_end_row} cot {column_number} "
+                            f"vi co cong thuc"
+                        )
+
+                    if not start_has_formula or not end_has_formula:
+                        logger.info(
+                            f"Da ghi From/To Ctn: {box_start}-{box_end} vao cot {column_number}"
+                        )
+
+                    processed_columns.add(column_number)
+                    columns_used += 1
+
+            logger.info(
+                f"Da ghi {written_count} cells, {columns_used} cot, "
+                f"tong {allocation_result.total_boxes} thung"
+            )
+            return written_count, columns_used
+
+        except Exception as e:
+            logger.error(f"Loi khi ghi so luong vao Excel: {e}", exc_info=True)
+            raise
+        finally:
+            excel_app.ScreenUpdating = True

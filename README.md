@@ -26,6 +26,12 @@ Dự án Python chuyên nghiệp để đọc, ghi và xử lý file Excel tự 
 - ✅ **Backup tự động**: Tự động backup file trước khi xử lý
 - ✅ **Logging**: Ghi log chi tiết mọi thao tác
 
+#### Hướng dẫn build dự án thành file .exe
+- Build file exe từ file spec cơ bản cần xác nhận ghi đè
+pyinstaller excel_realtime_controller.spec --clean
+- Lệnh build không cần xác nhận (tự động ghi đè):
+pyinstaller excel_realtime_controller.spec --clean --noconfirm
+
 ## 📁 Cấu Trúc Dự Án
 
 ```

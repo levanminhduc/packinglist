@@ -1,14 +1,15 @@
 import json
-from pathlib import Path
 from typing import Dict, Any
 import logging
 import copy
+
+from excel_automation.path_helper import get_config_path
 
 logger = logging.getLogger(__name__)
 
 
 class BoxListExportConfig:
-    
+
     DEFAULT_CONFIG = {
         "box_list_export_config": {
             "box_start_row": 15,
@@ -25,9 +26,9 @@ class BoxListExportConfig:
             "header_rows": 2
         }
     }
-    
+
     def __init__(self, config_file: str = "data/template_configs/box_list_export_config.json"):
-        self.config_file = Path(config_file)
+        self.config_file = get_config_path(config_file)
         self.config: Dict[str, Any] = {}
         self._load_config()
     

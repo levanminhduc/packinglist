@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from win32com.client import CDispatch
 import win32clipboard
 import logging
@@ -16,16 +16,30 @@ class BoxRange:
     box_start: int
     box_end: int
     column_number: int
-    
+    total_pcs: Optional[int] = None
+    items_per_box: Optional[int] = None
+
     def is_valid(self) -> bool:
         return self.box_start <= self.box_end and self.box_start > 0
-    
+
     def is_combined(self) -> bool:
         return len(self.sizes) > 1
-    
+
+    def is_partial(self) -> bool:
+        if self.is_combined():
+            return False
+        if self.total_pcs is None or self.items_per_box is None:
+            return False
+        return self.total_pcs < self.items_per_box
+
     def get_size_label(self, separator: str = "/") -> str:
         formatted_sizes = [self._format_size(s) for s in self.sizes]
-        return separator.join(formatted_sizes)
+        label = separator.join(formatted_sizes)
+
+        if self.is_partial() and self.total_pcs is not None:
+            label = f"{label}/{self.total_pcs}PCS"
+
+        return label
 
     def _format_size(self, size: str) -> str:
         try:
@@ -39,7 +53,7 @@ class BoxRange:
             return str(num)
         except (ValueError, TypeError):
             return size
-    
+
     def get_box_numbers(self) -> List[int]:
         return list(range(self.box_start, self.box_end + 1))
 
@@ -81,7 +95,7 @@ class BoxListExportManager:
         self,
         worksheet: CDispatch,
         selected_sizes: List[str]
-    ) -> Dict[str, List[Tuple[int, int, int]]]:
+    ) -> Dict[str, List[Tuple[int, int, int, int]]]:
         box_start_row = self.config.get_box_start_row()
         box_end_row = self.config.get_box_end_row()
         size_column = self.config.get_size_column()
@@ -100,7 +114,7 @@ class BoxListExportManager:
                 if size_str:
                     size_to_row[size_str] = row
 
-        box_ranges: Dict[str, List[Tuple[int, int, int]]] = {}
+        box_ranges: Dict[str, List[Tuple[int, int, int, int]]] = {}
 
         for size in selected_sizes:
             if size not in size_to_row:
@@ -109,7 +123,7 @@ class BoxListExportManager:
                 continue
 
             size_row = size_to_row[size]
-            size_box_ranges: List[Tuple[int, int, int]] = []
+            size_box_ranges: List[Tuple[int, int, int, int]] = []
 
             for column_number in range(7, 39):
                 try:
@@ -119,7 +133,7 @@ class BoxListExportManager:
                         continue
 
                     try:
-                        quantity = float(quantity_value)
+                        quantity = int(float(quantity_value))
                         if quantity <= 0:
                             continue
                     except (ValueError, TypeError):
@@ -146,7 +160,7 @@ class BoxListExportManager:
                         )
                         continue
 
-                    size_box_ranges.append((box_start, box_end, column_number))
+                    size_box_ranges.append((box_start, box_end, column_number, quantity))
 
                 except Exception as e:
                     logger.error(
@@ -162,38 +176,46 @@ class BoxListExportManager:
     def detect_combined_sizes(
         self,
         selected_sizes: List[str],
-        box_ranges: Dict[str, List[Tuple[int, int, int]]]
+        box_ranges: Dict[str, List[Tuple[int, int, int, int]]],
+        items_per_box: Optional[int] = None
     ) -> List[BoxRange]:
         if not self.config.is_combined_detection_enabled():
             result = []
             for size in selected_sizes:
                 size_ranges = box_ranges.get(size, [])
-                for box_start, box_end, column_number in size_ranges:
-                    result.append(BoxRange([size], box_start, box_end, column_number))
+                for box_start, box_end, column_number, quantity in size_ranges:
+                    result.append(BoxRange(
+                        [size], box_start, box_end, column_number,
+                        total_pcs=quantity, items_per_box=items_per_box
+                    ))
             return result
 
-        groups: Dict[Tuple[int, int], List[Tuple[str, int]]] = {}
+        groups: Dict[Tuple[int, int], List[Tuple[str, int, int]]] = {}
 
         for size in selected_sizes:
             size_ranges = box_ranges.get(size, [])
-            for box_start, box_end, column_number in size_ranges:
+            for box_start, box_end, column_number, quantity in size_ranges:
                 key = (box_start, box_end)
                 if key not in groups:
                     groups[key] = []
-                groups[key].append((size, column_number))
+                groups[key].append((size, column_number, quantity))
 
         result = []
         for (box_start, box_end), size_list in groups.items():
-            sizes_set = set(s for s, _ in size_list)
+            sizes_set = set(s for s, _, _ in size_list)
             sizes = list(sizes_set)
             column_number = size_list[0][1]
+            total_pcs = sum(qty for _, _, qty in size_list)
 
             if self.config.is_sort_combined_sizes_enabled():
                 sizes.sort(key=get_size_sort_key)
 
-            result.append(BoxRange(sizes, box_start, box_end, column_number))
+            result.append(BoxRange(
+                sizes, box_start, box_end, column_number,
+                total_pcs=total_pcs, items_per_box=items_per_box
+            ))
 
-        result = sorted(result, key=lambda br: (br.is_combined(), br.box_start))
+        result = sorted(result, key=lambda br: (br.is_partial(), br.box_start))
 
         return result
 
@@ -224,10 +246,18 @@ class BoxListExportManager:
             logger.warning(f"Không thể đọc PO number: {e}")
             return ""
 
-    def generate_header(self, workbook: CDispatch, worksheet: CDispatch) -> str:
+    def generate_header(
+        self,
+        workbook: CDispatch,
+        worksheet: CDispatch,
+        items_per_box: Optional[int] = None
+    ) -> str:
         filename = self.get_filename(workbook)
         po_number = self.get_po_number(worksheet)
-        return f"{filename}_PO:{po_number}"
+        header = f"{filename}_PO:{po_number}"
+        if items_per_box is not None:
+            header = f"{header} / {items_per_box} PCS"
+        return header
 
     def generate_sheet_name(self, workbook: CDispatch, worksheet: CDispatch) -> str:
         filename = self.get_filename(workbook)
@@ -311,10 +341,11 @@ class BoxListExportManager:
         box_ranges: List[BoxRange],
         new_sheet: CDispatch,
         start_column: str = "A",
-        start_row: int = 1
+        start_row: int = 1,
+        items_per_box: Optional[int] = None
     ) -> bool:
         try:
-            header = self.generate_header(workbook, worksheet)
+            header = self.generate_header(workbook, worksheet, items_per_box)
             header_rows = self.config.get_header_rows()
 
             content_lines = []
@@ -363,7 +394,8 @@ class BoxListExportManager:
         excel_app: CDispatch,
         workbook: CDispatch,
         worksheet: CDispatch,
-        selected_sizes: List[str]
+        selected_sizes: List[str],
+        items_per_box: Optional[int] = None
     ) -> BoxListExportResult:
         logger.info(f"Bắt đầu xuất danh sách thùng cho {len(selected_sizes)} sizes")
 
@@ -382,14 +414,18 @@ class BoxListExportManager:
                 logger.warning(error_msg)
                 return BoxListExportResult(success=False, error_message=error_msg)
 
-            box_ranges = self.detect_combined_sizes(selected_sizes, box_ranges_dict)
-
-            logger.info(
-                f"Đã phát hiện {len(box_ranges)} box ranges "
-                f"({sum(1 for br in box_ranges if br.is_combined())} kết hợp)"
+            box_ranges = self.detect_combined_sizes(
+                selected_sizes, box_ranges_dict, items_per_box
             )
 
-            header = self.generate_header(workbook, worksheet)
+            partial_count = sum(1 for br in box_ranges if br.is_partial())
+            logger.info(
+                f"Đã phát hiện {len(box_ranges)} box ranges "
+                f"({sum(1 for br in box_ranges if br.is_combined())} kết hợp, "
+                f"{partial_count} thùng lẻ)"
+            )
+
+            header = self.generate_header(workbook, worksheet, items_per_box)
 
             content_lines = []
             for box_range in box_ranges:

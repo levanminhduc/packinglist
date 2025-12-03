@@ -575,7 +575,7 @@ class ExcelRealtimeController:
 
     def _input_size_quantities(self) -> None:
         if not self.com_manager:
-            messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
+            messagebox.showwarning("Canh bao", "Vui long mo file Excel truoc!")
             return
 
         selected_sizes = [
@@ -585,8 +585,8 @@ class ExcelRealtimeController:
 
         if not selected_sizes:
             messagebox.showwarning(
-                "Cảnh báo",
-                "Vui lòng chọn ít nhất một size để nhập số lượng!"
+                "Canh bao",
+                "Vui long chon it nhat mot size de nhap so luong!"
             )
             return
 
@@ -610,42 +610,104 @@ class ExcelRealtimeController:
             quantities = dialog.get_quantities()
 
             if not quantities:
-                logger.info("Người dùng đã hủy hoặc không nhập số lượng nào")
+                logger.info("Nguoi dung da huy hoac khong nhap so luong nao")
                 return
 
-            self.status_label.config(text="Đang ghi số lượng vào Excel...")
+            self.status_label.config(text="Dang ghi so luong vao Excel...")
             self.root.update()
 
-            written_count = display_manager.write_quantities_to_excel(
-                self.com_manager.excel_app,
-                self.com_manager.worksheet,
-                selected_sizes,
-                quantities,
-                current_quantities,
-                self.config.get_column()
-            )
+            allocation_result = dialog.get_allocation_result()
+            items_per_box = dialog.get_items_per_box()
 
-            details = "\n".join([
-                f"  • Size {size}: {qty if qty is not None else 'Đã xóa'} thùng"
-                for size, qty in quantities.items()
-            ])
+            if allocation_result and items_per_box:
+                written_count, columns_used = display_manager.write_allocated_quantities_to_excel(
+                    self.com_manager.excel_app,
+                    self.com_manager.worksheet,
+                    allocation_result,
+                    selected_sizes,
+                    self.config.get_column()
+                )
 
-            messagebox.showinfo(
-                "Thành Công",
-                f"Đã ghi {written_count} cells số lượng vào Excel!\n\n"
-                f"Chi tiết:\n{details}"
-            )
+                result = allocation_result
+                details_lines = []
+                for size, alloc in result.allocations.items():
+                    if alloc.remainder > 0:
+                        details_lines.append(
+                            f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thung + {alloc.remainder} du"
+                        )
+                    else:
+                        details_lines.append(
+                            f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thung"
+                        )
 
-            self.status_label.config(text=f"Đã ghi {written_count} cells số lượng")
-            logger.info(f"Đã ghi {written_count} cells số lượng thành công")
+                if result.combined_cartons:
+                    details_lines.append("\nThung ghep:")
+                    for i, carton in enumerate(result.combined_cartons, 1):
+                        detail = ' + '.join([f'{s}({q})' for s, q in carton.quantities.items()])
+                        details_lines.append(f"  Thung {i}: {detail} = {carton.total_pcs} pcs")
+
+                details = "\n".join(details_lines)
+
+                messagebox.showinfo(
+                    "Thanh Cong",
+                    f"Da ghi {written_count} cells, {columns_used} cot!\n"
+                    f"Tong: {result.total_boxes} thung "
+                    f"({result.total_full_boxes} nguyen + {result.total_combined_boxes} ghep)\n\n"
+                    f"Chi tiet:\n{details}"
+                )
+
+                self.status_label.config(
+                    text=f"Da ghi {result.total_boxes} thung ({result.total_full_boxes} nguyen + {result.total_combined_boxes} ghep)"
+                )
+                logger.info(f"Da ghi {written_count} cells, {result.total_boxes} thung thanh cong")
+
+            else:
+                written_count = display_manager.write_quantities_to_excel(
+                    self.com_manager.excel_app,
+                    self.com_manager.worksheet,
+                    selected_sizes,
+                    quantities,
+                    current_quantities,
+                    self.config.get_column()
+                )
+
+                details = "\n".join([
+                    f"  Size {size}: {qty if qty is not None else 'Da xoa'} pcs"
+                    for size, qty in quantities.items()
+                ])
+
+                messagebox.showinfo(
+                    "Thanh Cong",
+                    f"Da ghi {written_count} cells so luong vao Excel!\n\n"
+                    f"Chi tiet:\n{details}"
+                )
+
+                self.status_label.config(text=f"Da ghi {written_count} cells so luong")
+                logger.info(f"Da ghi {written_count} cells so luong thanh cong")
 
         except Exception as e:
-            logger.error(f"Lỗi khi nhập số lượng size: {e}", exc_info=True)
+            logger.error(f"Loi khi nhap so luong size: {e}", exc_info=True)
             messagebox.showerror(
-                "Lỗi",
-                f"Không thể ghi số lượng vào Excel:\n\n{str(e)}"
+                "Loi",
+                f"Khong the ghi so luong vao Excel:\n\n{str(e)}"
             )
-            self.status_label.config(text="Lỗi khi ghi số lượng")
+            self.status_label.config(text="Loi khi ghi so luong")
+
+    def _extract_items_per_box(self) -> Optional[int]:
+        try:
+            if not self.com_manager:
+                return None
+            formula = self.com_manager.worksheet.Cells(18, 7).Formula
+            if not formula or not isinstance(formula, str):
+                return None
+            import re
+            match = re.search(r'/\s*(\d+)\s*$', formula)
+            if match:
+                return int(match.group(1))
+            return None
+        except Exception as e:
+            logger.warning(f"Không thể đọc items_per_box từ G18: {e}")
+            return None
 
     def _export_box_list(self) -> None:
         if not self.com_manager:
@@ -671,11 +733,14 @@ class ExcelRealtimeController:
             config = BoxListExportConfig()
             manager = BoxListExportManager(config)
 
+            items_per_box = self._extract_items_per_box()
+
             result = manager.export_box_list(
                 self.com_manager.excel_app,
                 self.com_manager.workbook,
                 self.com_manager.worksheet,
-                selected_sizes
+                selected_sizes,
+                items_per_box
             )
 
             if result.success:
@@ -693,7 +758,8 @@ class ExcelRealtimeController:
                         result.box_ranges,
                         new_sheet,
                         "A",
-                        1
+                        1,
+                        items_per_box
                     )
 
                     if paste_success:

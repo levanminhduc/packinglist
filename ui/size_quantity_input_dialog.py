@@ -6,6 +6,11 @@ import math
 import re
 
 from excel_automation.utils import get_size_sort_key
+from excel_automation.carton_allocation_calculator import (
+    CartonAllocationCalculator,
+    AllocationResult
+)
+from excel_automation.dialog_config_manager import DialogConfigManager
 
 if TYPE_CHECKING:
     from win32com.client import CDispatch
@@ -28,19 +33,27 @@ class SizeQuantityInputDialog:
         self.items_per_box: Optional[int] = None
         self.box_count_label: Optional[ttk.Label] = None
         self.total_qty_label: Optional[ttk.Label] = None
+        self.allocation_text: Optional[tk.Text] = None
+        self.allocation_result: Optional[AllocationResult] = None
 
         if worksheet is not None:
             self.total_qty = self._read_total_qty_from_excel(worksheet)
             self.items_per_box = self._extract_divisor_from_formula(worksheet)
             logger.info(f"Đã đọc thông tin từ Excel - Total QTY: {self.total_qty}, Items per box: {self.items_per_box}")
 
+        self.dialog_config = DialogConfigManager()
+
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Nhập Số Lượng Cho Từng Size")
-        self.dialog.geometry("500x600")
+        self.dialog.title("Nhap So Luong Cho Tung Size")
+
+        width, height = self.dialog_config.get_dialog_size('size_quantity_input')
+        self.dialog.geometry(f"{width}x{height}")
         self.dialog.resizable(True, True)
 
         self.dialog.transient(parent)
         self.dialog.grab_set()
+
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_closing)
 
         self._create_widgets()
         self._center_window()
@@ -153,53 +166,90 @@ class SizeQuantityInputDialog:
             return 0
 
     def _update_box_count_display(self, event=None) -> None:
-        """
-        Cập nhật hiển thị số thùng cần đóng và tổng số lượng đã nhập trên UI.
-
-        Method này được gọi mỗi khi user nhập/xóa số lượng trong Entry.
-        - box_count: Màu xanh nếu > 0, màu xám nếu = 0
-        - total_qty: Màu xanh dương nếu > 0, màu xám nếu = 0
-
-        Args:
-            event: Tkinter event object (không sử dụng, chỉ để bind event)
-        """
         try:
+            size_quantities: Dict[str, int] = {}
             total_qty = 0
-            for entry in self.quantity_entries.values():
+
+            for size, entry in self.quantity_entries.items():
                 value = entry.get().strip()
                 if value.isdigit():
-                    total_qty += int(value)
+                    qty = int(value)
+                    total_qty += qty
+                    size_quantities[size] = qty
 
             if self.total_qty_label:
                 if total_qty > 0:
                     self.total_qty_label.config(
-                        text=f"Tổng số lượng đã nhập: {total_qty} cái",
+                        text=f"Tong so luong da nhap: {total_qty} cai",
                         foreground='blue'
                     )
                 else:
                     self.total_qty_label.config(
-                        text="Tổng số lượng đã nhập: 0 cái",
+                        text="Tong so luong da nhap: 0 cai",
                         foreground='gray'
                     )
 
-            if not self.box_count_label:
+            if not self.items_per_box or self.items_per_box == 0:
                 return
 
-            box_count = self._calculate_box_count()
+            if size_quantities:
+                calc = CartonAllocationCalculator(self.items_per_box)
+                self.allocation_result = calc.get_full_result(size_quantities)
+                self._update_allocation_display()
 
-            if box_count > 0:
-                self.box_count_label.config(
-                    text=f"Số thùng cần đóng: {box_count} thùng",
-                    foreground='green'
-                )
+                if self.box_count_label:
+                    total_boxes = self.allocation_result.total_boxes
+                    if total_boxes > 0:
+                        self.box_count_label.config(
+                            text=f"Tong: {total_boxes} thung ({self.allocation_result.total_full_boxes} nguyen + {self.allocation_result.total_combined_boxes} ghep)",
+                            foreground='green'
+                        )
+                    else:
+                        self.box_count_label.config(
+                            text="So thung can dong: 0 thung",
+                            foreground='gray'
+                        )
             else:
-                self.box_count_label.config(
-                    text="Số thùng cần đóng: 0 thùng",
-                    foreground='gray'
-                )
+                self.allocation_result = None
+                if self.allocation_text:
+                    self.allocation_text.config(state=tk.NORMAL)
+                    self.allocation_text.delete('1.0', tk.END)
+                    self.allocation_text.config(state=tk.DISABLED)
+                if self.box_count_label:
+                    self.box_count_label.config(
+                        text="So thung can dong: 0 thung",
+                        foreground='gray'
+                    )
 
         except Exception as e:
-            logger.error(f"Lỗi khi update box count display: {e}", exc_info=True)
+            logger.error(f"Loi khi update box count display: {e}", exc_info=True)
+
+    def _update_allocation_display(self) -> None:
+        if not self.allocation_text or not self.allocation_result:
+            return
+
+        self.allocation_text.config(state=tk.NORMAL)
+        self.allocation_text.delete('1.0', tk.END)
+
+        self.allocation_text.insert(tk.END, "=== CHI TIET PHAN BO ===\n\n")
+
+        for size, alloc in self.allocation_result.allocations.items():
+            if alloc.remainder > 0:
+                line = f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thung ({alloc.full_qty}) + {alloc.remainder} du\n"
+            else:
+                line = f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thung ({alloc.full_qty})\n"
+            self.allocation_text.insert(tk.END, line)
+
+        if self.allocation_result.combined_cartons:
+            self.allocation_text.insert(tk.END, "\n=== THUNG GHEP ===\n\n")
+
+            for i, carton in enumerate(self.allocation_result.combined_cartons, 1):
+                details = ' + '.join([f'{s}({q})' for s, q in carton.quantities.items()])
+                full_marker = "[FULL]" if carton.is_full(self.items_per_box) else ""
+                line = f"  Thung {i}: {details} = {carton.total_pcs} pcs {full_marker}\n"
+                self.allocation_text.insert(tk.END, line)
+
+        self.allocation_text.config(state=tk.DISABLED)
 
     def _on_canvas_mouse_wheel(self, event) -> None:
         """
@@ -310,29 +360,45 @@ class SizeQuantityInputDialog:
         self.canvas.bind('<Button-5>', lambda e: self._on_canvas_mouse_wheel_linux(e, -1))
 
         if self.items_per_box is not None:
-            box_count_frame = ttk.LabelFrame(self.dialog, text="Thông Tin Đóng Gói", padding=10)
+            box_count_frame = ttk.LabelFrame(self.dialog, text="Thong Tin Dong Goi", padding=10)
             box_count_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
             ttk.Label(
                 box_count_frame,
-                text=f"Số lượng mỗi thùng: {self.items_per_box}",
+                text=f"So luong moi thung: {self.items_per_box}",
                 foreground='gray'
             ).pack(anchor=tk.W)
 
             self.total_qty_label = ttk.Label(
                 box_count_frame,
-                text="Tổng số lượng đã nhập: 0 cái",
+                text="Tong so luong da nhap: 0 cai",
                 foreground='gray'
             )
             self.total_qty_label.pack(anchor=tk.W, pady=(5, 0))
 
             self.box_count_label = ttk.Label(
                 box_count_frame,
-                text="Số thùng cần đóng: 0 thùng",
+                text="So thung can dong: 0 thung",
                 font=('Arial', 10, 'bold'),
                 foreground='gray'
             )
             self.box_count_label.pack(anchor=tk.W, pady=(5, 0))
+
+            alloc_frame = ttk.LabelFrame(self.dialog, text="Chi Tiet Phan Bo", padding=5)
+            alloc_frame.pack(fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
+
+            self.allocation_text = tk.Text(
+                alloc_frame,
+                height=8,
+                width=50,
+                font=('Consolas', 9),
+                state=tk.DISABLED,
+                wrap=tk.WORD
+            )
+            alloc_scrollbar = ttk.Scrollbar(alloc_frame, orient=tk.VERTICAL, command=self.allocation_text.yview)
+            self.allocation_text.configure(yscrollcommand=alloc_scrollbar.set)
+            self.allocation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            alloc_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
             self._update_box_count_display()
 
@@ -396,11 +462,29 @@ class SizeQuantityInputDialog:
                 self.quantities[size] = None
 
         logger.info(f"Đã nhập số lượng cho {len(self.quantities)} sizes")
-        self.dialog.destroy()
-    
+        self._save_size_and_close()
+
+    def _on_closing(self) -> None:
+        self._save_size_and_close()
+
+    def _save_size_and_close(self) -> None:
+        try:
+            width = self.dialog.winfo_width()
+            height = self.dialog.winfo_height()
+            self.dialog_config.save_dialog_size('size_quantity_input', width, height)
+        except Exception:
+            pass
+        finally:
+            self.dialog.destroy()
+
     def show(self) -> None:
         self.parent.wait_window(self.dialog)
-    
+
     def get_quantities(self) -> Dict[str, int]:
         return self.quantities
 
+    def get_allocation_result(self) -> Optional[AllocationResult]:
+        return self.allocation_result
+
+    def get_items_per_box(self) -> Optional[int]:
+        return self.items_per_box

@@ -1,7 +1,8 @@
 import json
-from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 import logging
+
+from excel_automation.path_helper import get_config_path
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,20 @@ class DialogConfigManager:
             "size_filter_config": {
                 "width": 450,
                 "height": 350
+            },
+            "size_filter": {
+                "width": 600,
+                "height": 500
+            },
+            "size_quantity_input": {
+                "width": 550,
+                "height": 750
             }
         }
     }
-    
+
     def __init__(self, config_file: str = "data/template_configs/dialog_config.json"):
-        self.config_file = Path(config_file)
+        self.config_file = get_config_path(config_file)
         self.config: Dict[str, Any] = {}
         self._load_config()
     
