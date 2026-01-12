@@ -3,6 +3,8 @@ from tkinter import ttk, filedialog, messagebox
 from typing import List, Dict, Optional, Callable, Tuple
 from pathlib import Path
 import logging
+import math
+import re
 
 from excel_automation.excel_com_manager import ExcelCOMManager
 from excel_automation.size_filter_config import SizeFilterConfig
@@ -10,13 +12,21 @@ from excel_automation.dialog_config_manager import DialogConfigManager
 from excel_automation.size_quantity_display_manager import SizeQuantityDisplayManager
 from excel_automation.box_list_export_config import BoxListExportConfig
 from excel_automation.box_list_export_manager import BoxListExportManager
+from excel_automation.carton_allocation_calculator import (
+    CartonAllocationCalculator,
+    AllocationResult
+)
+from excel_automation.po_update_manager import POUpdateManager
+from excel_automation.color_code_update_manager import ColorCodeUpdateManager
 from ui.size_quantity_input_dialog import SizeQuantityInputDialog
 
 logger = logging.getLogger(__name__)
 
 
 class ExcelRealtimeController:
-    
+
+    AUTO_SAVE_DELAY_MS = 10000
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.config = SizeFilterConfig()
@@ -29,6 +39,25 @@ class ExcelRealtimeController:
         self.checkboxes: Dict[str, tk.BooleanVar] = {}
         self.action_buttons: List[ttk.Button] = []
         self.action_frame: Optional[ttk.Frame] = None
+
+        self.quantity_entries: Dict[str, ttk.Entry] = {}
+        self.items_per_box: Optional[int] = None
+        self.allocation_result: Optional[AllocationResult] = None
+        self.box_count_frame: Optional[ttk.LabelFrame] = None
+        self.total_qty_label: Optional[ttk.Label] = None
+        self.box_count_label: Optional[ttk.Label] = None
+        self.allocation_text: Optional[tk.Text] = None
+
+        self._auto_save_timer_id: Optional[str] = None
+        self._auto_save_pending: bool = False
+
+        self.po_updated: bool = False
+        self.color_updated: bool = False
+        self.update_po_btn: Optional[ttk.Button] = None
+        self.update_color_btn: Optional[ttk.Button] = None
+        self.current_po_label: Optional[ttk.Label] = None
+        self.current_color_label: Optional[ttk.Label] = None
+        self.current_mahang_label: Optional[ttk.Label] = None
 
         self._setup_window()
         self._create_widgets()
@@ -99,16 +128,38 @@ class ExcelRealtimeController:
             width=12
         ).pack(side=tk.RIGHT)
 
+        info_frame = ttk.LabelFrame(main_frame, text="Thông Tin Hiện Tại", padding=10)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+
+        info_row_frame = ttk.Frame(info_frame)
+        info_row_frame.pack(fill=tk.X)
+
+        ttk.Label(info_row_frame, text="Mã Hàng:").pack(side=tk.LEFT, padx=(0, 5))
+        self.current_mahang_label = ttk.Label(info_row_frame, text="Chưa mở file", foreground="gray")
+        self.current_mahang_label.pack(side=tk.LEFT, padx=(0, 20))
+
+        ttk.Label(info_row_frame, text="PO:").pack(side=tk.LEFT, padx=(0, 5))
+        self.current_po_label = ttk.Label(info_row_frame, text="Chưa mở file", foreground="gray")
+        self.current_po_label.pack(side=tk.LEFT, padx=(0, 20))
+
+        ttk.Label(info_row_frame, text="Màu:").pack(side=tk.LEFT, padx=(0, 5))
+        self.current_color_label = ttk.Label(info_row_frame, text="Chưa mở file", foreground="gray")
+        self.current_color_label.pack(side=tk.LEFT)
+
         self.action_frame = ttk.Frame(main_frame)
         self.action_frame.pack(fill=tk.X, pady=(0, 10))
+
+        style = ttk.Style()
+        style.configure('Yellow.TButton', background='red')
+        style.map('Yellow.TButton',
+            background=[('active', 'gold'), ('pressed', 'orange')])
 
         buttons_config: List[Tuple[str, Callable]] = [
             ("🔍 Quét Sizes", self._scan_sizes),
             ("👁️ Ẩn dòng ngay", self._hide_rows_realtime),
             ("👁️‍🗨️ Hiện tất cả", self._show_all_rows),
-            ("📝 Update PO", self._update_po),
-            ("🎨 Update Color", self._update_color_code),
             ("📝 Nhập Số Lượng Size", self._input_size_quantities),
+            ("💾 Ghi vào Excel", self._write_quantities_to_excel),
             ("📦 Xuất Danh Sách Thùng", self._export_box_list),
         ]
 
@@ -120,6 +171,24 @@ class ExcelRealtimeController:
                 width=20
             )
             self.action_buttons.append(btn)
+
+        self.update_po_btn = ttk.Button(
+            self.action_frame,
+            text="📝 Update PO",
+            command=self._update_po,
+            width=20,
+            style='Yellow.TButton'
+        )
+        self.action_buttons.append(self.update_po_btn)
+
+        self.update_color_btn = ttk.Button(
+            self.action_frame,
+            text="🎨 Update Color",
+            command=self._update_color_code,
+            width=20,
+            style='Yellow.TButton'
+        )
+        self.action_buttons.append(self.update_color_btn)
 
         self.action_frame.bind("<Configure>", self._rearrange_buttons)
         self.root.after(100, lambda: self._rearrange_buttons(None))
@@ -142,6 +211,12 @@ class ExcelRealtimeController:
             command=self._deselect_all_sizes
         ).pack(side=tk.LEFT)
 
+        ttk.Button(
+            button_bar,
+            text="🔄 Refresh Số Liệu",
+            command=self._load_quantities_from_excel
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
         self.sizes_count_label = ttk.Label(
             button_bar,
             text="Chưa quét sizes",
@@ -149,24 +224,72 @@ class ExcelRealtimeController:
         )
         self.sizes_count_label.pack(side=tk.RIGHT)
 
-        canvas = tk.Canvas(sizes_frame, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(sizes_frame, orient=tk.VERTICAL, command=canvas.yview)
-        self.scrollable_frame = ttk.Frame(canvas)
+        self.sizes_canvas = tk.Canvas(sizes_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(sizes_frame, orient=tk.VERTICAL, command=self.sizes_canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.sizes_canvas)
 
         self.scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.sizes_canvas.configure(scrollregion=self.sizes_canvas.bbox("all"))
         )
 
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW)
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self.sizes_canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW)
+        self.sizes_canvas.configure(yscrollcommand=scrollbar.set)
 
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.sizes_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
+        def _on_mousewheel(event):
+            self.sizes_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.sizes_canvas.bind("<MouseWheel>", _on_mousewheel)
+        self.scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+
+        self.box_count_frame = ttk.LabelFrame(
+            main_frame,
+            text="Thông Tin Đóng Thùng",
+            padding=10
+        )
+        self.box_count_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.total_qty_label = ttk.Label(
+            self.box_count_frame,
+            text="Tổng số lượng đã nhập: 0 cái",
+            foreground='gray'
+        )
+        self.total_qty_label.pack(anchor=tk.W)
+
+        self.box_count_label = ttk.Label(
+            self.box_count_frame,
+            text="Số thùng cần đóng: 0 thùng",
+            font=('Arial', 10, 'bold'),
+            foreground='gray'
+        )
+        self.box_count_label.pack(anchor=tk.W, pady=(5, 0))
+
+        alloc_frame = ttk.Frame(self.box_count_frame)
+        alloc_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+
+        self.allocation_text = tk.Text(
+            alloc_frame,
+            height=6,
+            width=50,
+            font=('Consolas', 9),
+            state=tk.DISABLED,
+            wrap=tk.WORD
+        )
+        alloc_scrollbar = ttk.Scrollbar(
+            alloc_frame,
+            orient=tk.VERTICAL,
+            command=self.allocation_text.yview
+        )
+        self.allocation_text.configure(yscrollcommand=alloc_scrollbar.set)
+        self.allocation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        alloc_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X)
-        
+
         self.status_label = ttk.Label(
             status_frame,
             text="Sẵn sàng - Vui lòng chọn file Excel",
@@ -218,6 +341,9 @@ class ExcelRealtimeController:
             )
             
             self._scan_sizes()
+
+            self._update_po_color_display()
+            self._highlight_update_buttons()
             
             logger.info(f"Đã mở file qua COM: {file_path}")
             
@@ -330,6 +456,9 @@ class ExcelRealtimeController:
 
             self._scan_sizes()
 
+            self._update_po_color_display()
+            self._highlight_update_buttons()
+
             logger.info(f"Đã chuyển sang sheet: {selected_sheet}")
 
         except Exception as e:
@@ -341,51 +470,69 @@ class ExcelRealtimeController:
         if not self.com_manager:
             messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
             return
-        
+
         try:
             self.status_label.config(text="Đang quét sizes...")
             self.root.update()
-            
+
             self.available_sizes = self.com_manager.scan_sizes()
-            
+
             for widget in self.scrollable_frame.winfo_children():
                 widget.destroy()
             self.checkboxes.clear()
-            
+            self.quantity_entries.clear()
+
+            self.items_per_box = self._extract_items_per_box()
+            logger.info(f"Items per box: {self.items_per_box}")
+
             if not self.available_sizes:
                 ttk.Label(
                     self.scrollable_frame,
                     text="Không tìm thấy size nào",
                     foreground="red"
                 ).pack(pady=20)
-                
+
                 self.sizes_count_label.config(
                     text="0 sizes",
                     foreground="red"
                 )
                 self.status_label.config(text="Không tìm thấy size nào")
                 return
-            
-            num_columns = 6
+
+            num_columns = 5
+            for col in range(num_columns):
+                self.scrollable_frame.columnconfigure(col, weight=1, uniform="size_col")
+
             for idx, size in enumerate(self.available_sizes):
                 row = idx // num_columns
                 col = idx % num_columns
-                
+
+                size_frame = ttk.Frame(self.scrollable_frame)
+                size_frame.grid(row=row, column=col, sticky=tk.EW, padx=2, pady=2)
+
                 var = tk.BooleanVar(value=False)
                 self.checkboxes[size] = var
-                
+
                 cb = ttk.Checkbutton(
-                    self.scrollable_frame,
+                    size_frame,
                     text=size,
-                    variable=var
+                    variable=var,
+                    width=8,
+                    command=lambda s=size: self._on_checkbox_changed(s)
                 )
-                cb.grid(row=row, column=col, sticky=tk.W, padx=10, pady=5)
-            
+                cb.pack(side=tk.LEFT)
+
+                entry = ttk.Entry(size_frame, width=5)
+                entry.pack(side=tk.LEFT, padx=(2, 0))
+                entry.bind('<KeyRelease>', lambda e, s=size: self._on_quantity_changed(s, e))
+                entry.bind('<MouseWheel>', lambda e: self.sizes_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+                self.quantity_entries[size] = entry
+
             self.sizes_count_label.config(
                 text=f"Tìm thấy {len(self.available_sizes)} sizes",
                 foreground="green"
             )
-            
+
             self.status_label.config(
                 text=f"Đã quét {len(self.available_sizes)} sizes - "
                 f"Cột {self.config.get_column()} "
@@ -393,20 +540,434 @@ class ExcelRealtimeController:
             )
             
             logger.info(f"Đã quét {len(self.available_sizes)} sizes")
+
+            self._load_quantities_from_excel()
             
         except Exception as e:
             logger.error(f"Lỗi khi quét sizes: {e}")
             messagebox.showerror("Lỗi", f"Không thể quét sizes:\n{str(e)}")
             self.status_label.config(text="Lỗi khi quét sizes")
+
+    def _load_quantities_from_excel(self) -> None:
+        if not self.com_manager or not self.available_sizes:
+            return
+
+        try:
+            self.status_label.config(text="Đang đọc số liệu từ Excel...")
+            self.root.update()
+
+            display_manager = SizeQuantityDisplayManager(self.config)
+
+            current_quantities = display_manager.get_current_quantities(
+                self.com_manager.worksheet,
+                self.available_sizes,
+                self.config.get_column()
+            )
+
+            loaded_count = 0
+            for size, quantity in current_quantities.items():
+                if size in self.quantity_entries and quantity is not None:
+                    entry = self.quantity_entries[size]
+                    entry.delete(0, tk.END)
+                    entry.insert(0, str(quantity))
+                    self.checkboxes[size].set(True)
+                    loaded_count += 1
+
+            if loaded_count > 0:
+                self.status_label.config(
+                    text=f"Đã load {loaded_count} số liệu từ Excel"
+                )
+                self._update_box_count_display()
+            else:
+                self.status_label.config(
+                    text=f"Đã quét {len(self.available_sizes)} sizes - Chưa có số liệu"
+                )
+
+            logger.info(f"Đã load {loaded_count} số liệu từ Excel")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi load số liệu từ Excel: {e}")
+            self.status_label.config(text="Lỗi khi đọc số liệu từ Excel")
     
     def _select_all_sizes(self) -> None:
         for var in self.checkboxes.values():
             var.set(True)
-    
+        if self.quantity_entries:
+            first_entry = list(self.quantity_entries.values())[0]
+            first_entry.focus_set()
+
     def _deselect_all_sizes(self) -> None:
         for var in self.checkboxes.values():
             var.set(False)
-    
+        for entry in self.quantity_entries.values():
+            entry.delete(0, tk.END)
+        self._update_box_count_display()
+
+    def _on_quantity_changed(self, size: str, event=None) -> None:
+        try:
+            if size not in self.quantity_entries:
+                return
+
+            entry = self.quantity_entries[size]
+            value = entry.get().strip()
+
+            if value.isdigit() and int(value) > 0:
+                self.checkboxes[size].set(True)
+            else:
+                self.checkboxes[size].set(False)
+
+            self._update_box_count_display()
+            self._reset_auto_save_timer()
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý quantity changed cho size {size}: {e}")
+
+    def _on_checkbox_changed(self, size: str) -> None:
+        try:
+            if size not in self.checkboxes or size not in self.quantity_entries:
+                return
+
+            is_checked = self.checkboxes[size].get()
+            entry = self.quantity_entries[size]
+
+            if is_checked:
+                entry.focus_set()
+            else:
+                entry.delete(0, tk.END)
+                self._update_box_count_display()
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý checkbox changed cho size {size}: {e}")
+
+    def _reset_auto_save_timer(self) -> None:
+        if self._auto_save_timer_id is not None:
+            try:
+                self.root.after_cancel(self._auto_save_timer_id)
+            except Exception:
+                pass
+            self._auto_save_timer_id = None
+
+        self._auto_save_pending = True
+        self._auto_save_timer_id = self.root.after(
+            self.AUTO_SAVE_DELAY_MS,
+            self._perform_auto_save
+        )
+
+    def _perform_auto_save(self) -> None:
+        self._auto_save_timer_id = None
+
+        if not self._auto_save_pending:
+            return
+
+        self._auto_save_pending = False
+
+        if not self.com_manager:
+            return
+
+        size_quantities: Dict[str, int] = {}
+        for size, entry in self.quantity_entries.items():
+            value = entry.get().strip()
+            if value.isdigit() and int(value) > 0:
+                size_quantities[size] = int(value)
+
+        if not size_quantities:
+            return
+
+        selected_sizes = [
+            size for size, var in self.checkboxes.items()
+            if var.get()
+        ]
+
+        if not selected_sizes:
+            return
+
+        try:
+            self.status_label.config(text="Đang tự động lưu...")
+            self.root.update()
+
+            display_manager = SizeQuantityDisplayManager(self.config)
+
+            current_quantities = display_manager.get_current_quantities(
+                self.com_manager.worksheet,
+                selected_sizes,
+                self.config.get_column()
+            )
+
+            if self.allocation_result and self.items_per_box:
+                written_count, columns_used = display_manager.write_allocated_quantities_to_excel(
+                    self.com_manager.excel_app,
+                    self.com_manager.worksheet,
+                    self.allocation_result,
+                    selected_sizes,
+                    self.config.get_column()
+                )
+                self.status_label.config(
+                    text=f"✓ Đã tự động lưu {written_count} cells vào Excel"
+                )
+                logger.info(f"Auto-save: Đã ghi {written_count} cells thành công")
+            else:
+                written_count = display_manager.write_quantities_to_excel(
+                    self.com_manager.excel_app,
+                    self.com_manager.worksheet,
+                    selected_sizes,
+                    size_quantities,
+                    current_quantities,
+                    self.config.get_column()
+                )
+                self.status_label.config(
+                    text=f"✓ Đã tự động lưu {written_count} cells vào Excel"
+                )
+                logger.info(f"Auto-save: Đã ghi {written_count} cells thành công")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi auto-save: {e}")
+            self.status_label.config(text="Lỗi khi tự động lưu")
+
+    def _update_box_count_display(self) -> None:
+        try:
+            size_quantities: Dict[str, int] = {}
+            total_qty = 0
+
+            for size, entry in self.quantity_entries.items():
+                value = entry.get().strip()
+                if value.isdigit() and int(value) > 0:
+                    qty = int(value)
+                    total_qty += qty
+                    size_quantities[size] = qty
+
+            if self.total_qty_label:
+                if total_qty > 0:
+                    self.total_qty_label.config(
+                        text=f"Tổng số lượng đã nhập: {total_qty} cái",
+                        foreground='blue'
+                    )
+                else:
+                    self.total_qty_label.config(
+                        text="Tổng số lượng đã nhập: 0 cái",
+                        foreground='gray'
+                    )
+
+            if not self.items_per_box or self.items_per_box == 0:
+                if self.box_count_label:
+                    self.box_count_label.config(
+                        text="Chưa đọc được items per box từ Excel",
+                        foreground='orange'
+                    )
+                return
+
+            if size_quantities:
+                calc = CartonAllocationCalculator(self.items_per_box)
+                self.allocation_result = calc.get_full_result(size_quantities)
+                self._update_allocation_display()
+
+                if self.box_count_label:
+                    total_boxes = self.allocation_result.total_boxes
+                    if total_boxes > 0:
+                        self.box_count_label.config(
+                            text=f"Tổng: {total_boxes} thùng "
+                                 f"({self.allocation_result.total_full_boxes} nguyên + "
+                                 f"{self.allocation_result.total_combined_boxes} ghép)",
+                            foreground='green'
+                        )
+                    else:
+                        self.box_count_label.config(
+                            text="Số thùng cần đóng: 0 thùng",
+                            foreground='gray'
+                        )
+            else:
+                self.allocation_result = None
+                if self.allocation_text:
+                    self.allocation_text.config(state=tk.NORMAL)
+                    self.allocation_text.delete('1.0', tk.END)
+                    self.allocation_text.config(state=tk.DISABLED)
+                if self.box_count_label:
+                    self.box_count_label.config(
+                        text="Số thùng cần đóng: 0 thùng",
+                        foreground='gray'
+                    )
+
+        except Exception as e:
+            logger.error(f"Lỗi khi update box count display: {e}", exc_info=True)
+
+    def _update_allocation_display(self) -> None:
+        if not self.allocation_text or not self.allocation_result:
+            return
+
+        try:
+            self.allocation_text.config(state=tk.NORMAL)
+            self.allocation_text.delete('1.0', tk.END)
+
+            self.allocation_text.insert(tk.END, "=== CHI TIẾT PHÂN BỔ ===\n\n")
+
+            for size, alloc in self.allocation_result.allocations.items():
+                if alloc.remainder > 0:
+                    line = f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thùng ({alloc.full_qty}) + {alloc.remainder} dư\n"
+                else:
+                    line = f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thùng ({alloc.full_qty})\n"
+                self.allocation_text.insert(tk.END, line)
+
+            if self.allocation_result.combined_cartons:
+                self.allocation_text.insert(tk.END, "\n=== THÙNG GHÉP ===\n\n")
+
+                for i, carton in enumerate(self.allocation_result.combined_cartons, 1):
+                    details = ' + '.join([f'{s}({q})' for s, q in carton.quantities.items()])
+                    full_marker = "[FULL]" if carton.is_full(self.items_per_box) else ""
+                    line = f"  Thùng {i}: {details} = {carton.total_pcs} pcs {full_marker}\n"
+                    self.allocation_text.insert(tk.END, line)
+
+            self.allocation_text.config(state=tk.DISABLED)
+
+        except Exception as e:
+            logger.error(f"Lỗi khi update allocation display: {e}", exc_info=True)
+
+    def _validate_quantities(self) -> bool:
+        for size, entry in self.quantity_entries.items():
+            value = entry.get().strip()
+
+            if value == "":
+                continue
+
+            try:
+                quantity = int(value)
+                if quantity < 1 or quantity > 5000:
+                    messagebox.showerror(
+                        "Lỗi Validation",
+                        f"Size {size}: Số lượng phải từ 1 đến 5000!\n\n"
+                        f"Giá trị nhập: {quantity}"
+                    )
+                    entry.focus_set()
+                    return False
+            except ValueError:
+                messagebox.showerror(
+                    "Lỗi Validation",
+                    f"Size {size}: Số lượng phải là số nguyên!\n\n"
+                    f"Giá trị nhập: '{value}'"
+                )
+                entry.focus_set()
+                return False
+
+        return True
+
+    def _write_quantities_to_excel(self) -> None:
+        if not self.com_manager:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
+            return
+
+        selected_sizes = [
+            size for size, var in self.checkboxes.items()
+            if var.get()
+        ]
+
+        if not selected_sizes:
+            messagebox.showwarning(
+                "Cảnh báo",
+                "Vui lòng chọn ít nhất một size để ghi số lượng!"
+            )
+            return
+
+        if not self._validate_quantities():
+            return
+
+        size_quantities: Dict[str, int] = {}
+        for size in selected_sizes:
+            if size in self.quantity_entries:
+                value = self.quantity_entries[size].get().strip()
+                if value.isdigit() and int(value) > 0:
+                    size_quantities[size] = int(value)
+
+        if not size_quantities:
+            messagebox.showwarning(
+                "Cảnh báo",
+                "Vui lòng nhập số lượng cho ít nhất một size!"
+            )
+            return
+
+        try:
+            self.status_label.config(text="Đang ghi số lượng vào Excel...")
+            self.root.update()
+
+            display_manager = SizeQuantityDisplayManager(self.config)
+
+            current_quantities = display_manager.get_current_quantities(
+                self.com_manager.worksheet,
+                selected_sizes,
+                self.config.get_column()
+            )
+
+            if self.allocation_result and self.items_per_box:
+                written_count, columns_used = display_manager.write_allocated_quantities_to_excel(
+                    self.com_manager.excel_app,
+                    self.com_manager.worksheet,
+                    self.allocation_result,
+                    selected_sizes,
+                    self.config.get_column()
+                )
+
+                result = self.allocation_result
+                details_lines = []
+                for size, alloc in result.allocations.items():
+                    if alloc.remainder > 0:
+                        details_lines.append(
+                            f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thùng + {alloc.remainder} dư"
+                        )
+                    else:
+                        details_lines.append(
+                            f"  {size}: {alloc.total_pcs} pcs -> {alloc.full_boxes} thùng"
+                        )
+
+                if result.combined_cartons:
+                    details_lines.append("\nThùng ghép:")
+                    for i, carton in enumerate(result.combined_cartons, 1):
+                        detail = ' + '.join([f'{s}({q})' for s, q in carton.quantities.items()])
+                        details_lines.append(f"  Thùng {i}: {detail} = {carton.total_pcs} pcs")
+
+                details = "\n".join(details_lines)
+
+                messagebox.showinfo(
+                    "Thành Công",
+                    f"Đã ghi {written_count} cells, {columns_used} cột!\n"
+                    f"Tổng: {result.total_boxes} thùng "
+                    f"({result.total_full_boxes} nguyên + {result.total_combined_boxes} ghép)\n\n"
+                    f"Chi tiết:\n{details}"
+                )
+
+                self.status_label.config(
+                    text=f"Đã ghi {result.total_boxes} thùng ({result.total_full_boxes} nguyên + {result.total_combined_boxes} ghép)"
+                )
+                logger.info(f"Đã ghi {written_count} cells, {result.total_boxes} thùng thành công")
+
+            else:
+                written_count = display_manager.write_quantities_to_excel(
+                    self.com_manager.excel_app,
+                    self.com_manager.worksheet,
+                    selected_sizes,
+                    size_quantities,
+                    current_quantities,
+                    self.config.get_column()
+                )
+
+                details = "\n".join([
+                    f"  Size {size}: {qty} pcs"
+                    for size, qty in size_quantities.items()
+                ])
+
+                messagebox.showinfo(
+                    "Thành Công",
+                    f"Đã ghi {written_count} cells số lượng vào Excel!\n\n"
+                    f"Chi tiết:\n{details}"
+                )
+
+                self.status_label.config(text=f"Đã ghi {written_count} cells số lượng")
+                logger.info(f"Đã ghi {written_count} cells số lượng thành công")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi ghi số lượng vào Excel: {e}", exc_info=True)
+            messagebox.showerror(
+                "Lỗi",
+                f"Không thể ghi số lượng vào Excel:\n\n{str(e)}"
+            )
+            self.status_label.config(text="Lỗi khi ghi số lượng")
+
     def _hide_rows_realtime(self) -> None:
         if not self.com_manager:
             messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
@@ -521,6 +1082,9 @@ class ExcelRealtimeController:
                     self.status_label.config(text=f"Đã cập nhật mã màu: '{new_color}")
                     logger.info(f"Đã cập nhật {updated_count} dòng mã màu thành '{new_color}'")
 
+                    self._update_po_color_display()
+                    self._reset_color_button_highlight()
+
                 except Exception as e:
                     logger.error(f"Lỗi khi cập nhật mã màu: {e}")
                     messagebox.showerror("Lỗi", f"Không thể cập nhật mã màu:\n{str(e)}")
@@ -561,6 +1125,9 @@ class ExcelRealtimeController:
 
                     self.status_label.config(text=f"Đã cập nhật PO: {new_po}")
                     logger.info(f"Đã cập nhật {updated_count} dòng PO thành '{new_po}'")
+
+                    self._update_po_color_display()
+                    self._reset_po_button_highlight()
 
                 except Exception as e:
                     logger.error(f"Lỗi khi cập nhật PO: {e}")
@@ -803,6 +1370,54 @@ class ExcelRealtimeController:
             )
             self.status_label.config(text="Lỗi khi xuất danh sách thùng")
 
+    def _update_po_color_display(self) -> None:
+        if not self.com_manager or not self.com_manager.worksheet:
+            return
+
+        try:
+            if self.current_mahang_label and self.current_file:
+                file_name = Path(self.current_file).stem
+                self.current_mahang_label.config(text=file_name, foreground="blue")
+
+            po_manager = POUpdateManager(self.config)
+            current_po = po_manager.get_current_po(self.com_manager.worksheet, 'A')
+
+            if self.current_po_label:
+                if current_po:
+                    self.current_po_label.config(text=current_po, foreground="blue")
+                else:
+                    self.current_po_label.config(text="Chưa có", foreground="gray")
+
+            color_manager = ColorCodeUpdateManager(self.config)
+            current_color = color_manager.get_current_color_code(self.com_manager.worksheet, 'E')
+
+            if self.current_color_label:
+                if current_color:
+                    self.current_color_label.config(text=current_color, foreground="blue")
+                else:
+                    self.current_color_label.config(text="Chưa có", foreground="gray")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi cập nhật hiển thị PO/Color: {e}")
+
+    def _highlight_update_buttons(self) -> None:
+        self.po_updated = False
+        self.color_updated = False
+        if self.update_po_btn:
+            self.update_po_btn.configure(style='Yellow.TButton')
+        if self.update_color_btn:
+            self.update_color_btn.configure(style='Yellow.TButton')
+
+    def _reset_po_button_highlight(self) -> None:
+        self.po_updated = True
+        if self.update_po_btn:
+            self.update_po_btn.configure(style='TButton')
+
+    def _reset_color_button_highlight(self) -> None:
+        self.color_updated = True
+        if self.update_color_btn:
+            self.update_color_btn.configure(style='TButton')
+
     def _column_number_to_letter(self, col_num: int) -> str:
         result = ""
         while col_num > 0:
@@ -812,6 +1427,14 @@ class ExcelRealtimeController:
         return result
 
     def _on_closing(self) -> None:
+        if self._auto_save_timer_id is not None:
+            try:
+                self.root.after_cancel(self._auto_save_timer_id)
+            except Exception:
+                pass
+            self._auto_save_timer_id = None
+        self._auto_save_pending = False
+
         if self.com_manager:
             response = messagebox.askyesnocancel(
                 "Đóng ứng dụng",
@@ -843,4 +1466,25 @@ class ExcelRealtimeController:
             self.dialog_config.save_main_window_geometry(width, height, x, y)
         except Exception as e:
             logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
+
+            height = self.root.winfo_height()
+            x = self.root.winfo_x()
+            y = self.root.winfo_y()
+            self.dialog_config.save_main_window_geometry(width, height, x, y)
+        except Exception as e:
+            logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
+
+
+
+
+            height = self.root.winfo_height()
+            x = self.root.winfo_x()
+            y = self.root.winfo_y()
+            self.dialog_config.save_main_window_geometry(width, height, x, y)
+        except Exception as e:
+            logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
+
+            logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
+
+
 
