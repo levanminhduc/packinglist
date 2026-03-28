@@ -1534,7 +1534,7 @@ class ExcelRealtimeController:
         """Mở dialog đọc PDF."""
         try:
             from ui.pdf_reader_dialog import PdfReaderDialog
-            PdfReaderDialog(self.root)
+            PdfReaderDialog(self.root, ui_config=self.ui_config)
         except ImportError as e:
             messagebox.showerror(
                 "Lỗi",

@@ -23,8 +23,9 @@ class PdfReaderDialog:
 
     DIALOG_NAME = "pdf_reader"
 
-    def __init__(self, parent: tk.Tk):
+    def __init__(self, parent: tk.Tk, ui_config=None):
         self.parent = parent
+        self.ui_config = ui_config
         self.dialog_config = DialogConfigManager()
         self._processing = False
         self._worker_thread: Optional[threading.Thread] = None
@@ -120,15 +121,19 @@ class PdfReaderDialog:
         ).pack(side=tk.RIGHT)
 
     def _choose_and_read_pdf(self) -> None:
-        """Mở file dialog chọn PDF rồi bắt đầu extract text."""
+        initial_dir = self.ui_config.get_last_directory("pdf_reader") if self.ui_config else None
         file_path = filedialog.askopenfilename(
             title="Chọn file PDF",
             filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")],
-            parent=self.dialog
+            parent=self.dialog,
+            initialdir=initial_dir
         )
 
         if not file_path:
             return
+
+        if self.ui_config:
+            self.ui_config.set_last_directory("pdf_reader", file_path)
 
         self.file_label.config(text=file_path, foreground="black")
         self._start_extraction(file_path)
