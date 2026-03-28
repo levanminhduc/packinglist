@@ -107,3 +107,43 @@ class TestSizeQuantityExtraction:
         text = "No sizes here"
         with pytest.raises(RuntimeError, match="Không tìm thấy dữ liệu Size"):
             PDFPOParser._extract_size_quantities(text)
+
+
+from pathlib import Path as PDFPath
+
+
+class TestFullParse:
+
+    def test_parse_test_pdf(self):
+        pdf_path = PDFPath(__file__).parent.parent / "Test.pdf"
+        if not pdf_path.exists():
+            pytest.skip("Test.pdf không tồn tại")
+
+        result = PDFPOParser.parse(str(pdf_path))
+
+        assert isinstance(result, PDFPOData)
+        assert result.raw_po == "0009013330-1"
+        assert result.po_number == "9013330"
+        assert result.color_code == "3104"
+        assert result.total_quantity == 1030
+        assert result.size_quantities["046"] == 60
+        assert result.size_quantities["048"] == 140
+        assert result.size_quantities["050"] == 200
+        assert result.size_quantities["052"] == 200
+        assert result.size_quantities["054"] == 160
+        assert result.size_quantities["056"] == 100
+        assert result.size_quantities["058"] == 20
+        assert result.size_quantities["096"] == 20
+        assert result.size_quantities["100"] == 20
+        assert result.size_quantities["104"] == 20
+        assert result.size_quantities["108"] == 20
+        assert result.size_quantities["120"] == 10
+        assert result.size_quantities["148"] == 20
+        assert result.size_quantities["150"] == 20
+        assert result.size_quantities["152"] == 20
+        assert len(result.size_quantities) == 15
+        assert result.source_file == str(pdf_path)
+
+    def test_parse_nonexistent_file(self):
+        with pytest.raises(RuntimeError, match="Không thể đọc file PDF"):
+            PDFPOParser.parse("nonexistent.pdf")

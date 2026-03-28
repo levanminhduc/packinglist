@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict
 import logging
 import re
+
+import pdfplumber
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,7 @@ class PDFPOParser:
 
     @staticmethod
     def _extract_po_number(full_text: str) -> tuple:
-        pattern = r'P\.?\s*O\.?\s*No\.?\s*[^\n]*\n\s*(\S+)'
+        pattern = r'(\d{7,}-\d+)\s'
         match = re.search(pattern, full_text)
         if not match:
             raise RuntimeError("Không tìm thấy PO Number trong file PDF")
@@ -78,3 +81,42 @@ class PDFPOParser:
             raise RuntimeError("Không tìm thấy dữ liệu Size/Quantity trong file PDF")
 
         return size_quantities
+
+    @staticmethod
+    def parse(file_path: str) -> "PDFPOData":
+        path = Path(file_path)
+        if not path.exists():
+            raise RuntimeError(f"Không thể đọc file PDF: File không tồn tại: {file_path}")
+
+        try:
+            full_text = ""
+            with pdfplumber.open(str(path)) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        full_text += page_text + "\n"
+        except Exception as e:
+            logger.error(f"Lỗi khi đọc file PDF: {e}")
+            raise RuntimeError(f"Không thể đọc file PDF: {str(e)}")
+
+        if not full_text.strip():
+            raise RuntimeError("File PDF không chứa nội dung text")
+
+        raw_po, po_number = PDFPOParser._extract_po_number(full_text)
+        color_code = PDFPOParser._extract_color_code(full_text)
+        size_quantities = PDFPOParser._extract_size_quantities(full_text)
+        total_quantity = sum(size_quantities.values())
+
+        logger.info(
+            f"Parse PDF thành công: PO={po_number}, Color={color_code}, "
+            f"{len(size_quantities)} sizes, total={total_quantity}"
+        )
+
+        return PDFPOData(
+            raw_po=raw_po,
+            po_number=po_number,
+            color_code=color_code,
+            size_quantities=size_quantities,
+            total_quantity=total_quantity,
+            source_file=str(path)
+        )
