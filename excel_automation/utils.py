@@ -41,6 +41,99 @@ def setup_logging(
     logger.info("Logging đã được cấu hình")
 
 
+def find_last_data_row(worksheet, col_num: int, start_row: int = 19, max_scan: int = 10000) -> int:
+    """
+    Tìm dòng cuối cùng có dữ liệu trong worksheet (COM automation).
+    Quét từ start_row xuống cho đến khi gặp ô trống.
+
+    Args:
+        worksheet: COM worksheet object
+        col_num: Số cột cần quét (1-based)
+        start_row: Dòng bắt đầu quét
+        max_scan: Giới hạn số dòng quét tối đa
+
+    Returns:
+        Số dòng cuối cùng có dữ liệu, hoặc start_row nếu không tìm thấy
+    """
+    row = start_row
+    while row <= start_row + max_scan:
+        try:
+            cell_value = worksheet.Cells(row, col_num).Value
+            if cell_value is None or str(cell_value).strip() == "":
+                break
+            row += 1
+        except Exception:
+            break
+
+    result = row - 1
+    if result < start_row:
+        logger.warning(f"Không tìm thấy dữ liệu từ dòng {start_row}, cột {col_num}")
+        return start_row
+
+    logger.info(f"Nhận diện dòng cuối: {result} (cột {col_num}, bắt đầu từ {start_row})")
+    return result
+
+
+def normalize_size_value(cell_value) -> str:
+    """
+    Chuẩn hóa giá trị size từ Excel cell thành string nhất quán.
+    Số lẻ (0.5, 1.5, 7,5...) được LÀM TRÒN LÊN thành số nguyên.
+
+    Xử lý tất cả các trường hợp COM automation trả về:
+      - None → ""
+      - float 38.0 → "038"
+      - float 0.5 → "001" (làm tròn lên)
+      - float 1.5 → "002" (làm tròn lên)
+      - int 38 → "038"
+      - str "38" → "038"
+      - str "38.0" → "038"
+      - str "0,5" → "001" (dấu phẩy VN, làm tròn lên)
+      - str "7,5" → "008" (dấu phẩy VN, làm tròn lên)
+      - str "XL", "S", "M" → "XL", "S", "M" (giữ nguyên)
+
+    Args:
+        cell_value: Giá trị đọc từ Excel cell (có thể là None, int, float, str)
+
+    Returns:
+        Size string đã chuẩn hóa, hoặc "" nếu không hợp lệ
+    """
+    import math
+
+    if cell_value is None:
+        return ""
+
+    # COM automation thường trả về float cho số nguyên (38 → 38.0)
+    if isinstance(cell_value, float):
+        # Luôn làm tròn lên: 38.0 → 38, 0.5 → 1, 1.5 → 2
+        return str(math.ceil(cell_value)).zfill(3)
+
+    if isinstance(cell_value, int):
+        return str(cell_value).strip().zfill(3)
+
+    # Xử lý string
+    size_str = str(cell_value).strip()
+    if not size_str:
+        return ""
+
+    # Chuẩn hóa dấu phẩy VN → dấu chấm (0,5 → 0.5, 38,5 → 38.5)
+    normalized = size_str
+    if ',' in normalized and '.' not in normalized:
+        candidate = normalized.replace(',', '.')
+        try:
+            float(candidate)
+            normalized = candidate
+        except (ValueError, TypeError):
+            pass
+
+    # Thử parse như số → làm tròn lên
+    try:
+        num = float(normalized)
+        return str(math.ceil(num)).zfill(3)
+    except (ValueError, TypeError):
+        # Không phải số → giữ nguyên ("XL", "S", "M",...)
+        return size_str
+
+
 def get_size_sort_key(size: str) -> tuple:
     """
     Tạo sort key cho size để sắp xếp theo thứ tự: XS, S, M, L, XL, XXL, XXXL.
@@ -66,9 +159,11 @@ def get_size_sort_key(size: str) -> tuple:
     if size_upper in size_order:
         return (0, size_order[size_upper])
 
-    if size.replace('.', '').replace('-', '').isdigit():
+    if size.replace('.', '').replace('-', '').replace(',', '').isdigit():
         try:
-            return (1, float(size))
+            # Chuẩn hóa dấu phẩy VN → dấu chấm trước khi parse
+            normalized = size.replace(',', '.') if ',' in size and '.' not in size else size
+            return (1, float(normalized))
         except ValueError:
             return (2, size)
 

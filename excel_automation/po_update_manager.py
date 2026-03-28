@@ -2,16 +2,28 @@ import re
 from typing import Tuple, Optional
 import logging
 
+from excel_automation.utils import find_last_data_row
+
 logger = logging.getLogger(__name__)
 
 
 class POUpdateManager:
-    
+
     def __init__(self, config):
         self.config = config
+
+    def _find_last_data_row(self, worksheet, column: str = 'A') -> int:
+        """Tự nhận diện dòng cuối cùng có dữ liệu."""
+        col_num = self._column_to_number(column)
+        return find_last_data_row(worksheet, col_num, 19)
+    
+    def get_data_range(self, worksheet, column: str = 'A') -> Tuple[int, int]:
+        start_row = 19
+        end_row = self._find_last_data_row(worksheet, column)
+        return (start_row, end_row)
     
     def get_current_po(self, worksheet, column: str = 'A') -> str:
-        start_row = self.config.get_start_row()
+        start_row = 19
         col_num = self._column_to_number(column)
 
         try:
@@ -27,8 +39,8 @@ class POUpdateManager:
             return ""
     
     def update_po_bulk(self, worksheet, new_po: str, column: str = 'A') -> int:
-        start_row = self.config.get_start_row()
-        end_row = self.config.get_end_row()
+        start_row = 19
+        end_row = self._find_last_data_row(worksheet, column)
         col_num = self._column_to_number(column)
         
         updated_count = 0

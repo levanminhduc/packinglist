@@ -5,7 +5,7 @@ import win32com.client
 from win32com.client import CDispatch
 
 from excel_automation.size_filter_config import SizeFilterConfig
-from excel_automation.utils import get_size_sort_key
+from excel_automation.utils import get_size_sort_key, normalize_size_value, find_last_data_row
 
 logger = logging.getLogger(__name__)
 
@@ -96,37 +96,74 @@ class ExcelCOMManager:
             logger.error(f"Lỗi khi chuyển sheet: {e}")
             raise RuntimeError(f"Không thể chuyển sang sheet '{sheet_name}': {str(e)}")
     
+    def detect_end_row(self, reference_column: str = 'A') -> int:
+        """Tự nhận diện dòng cuối cùng có dữ liệu trong worksheet."""
+        if self.worksheet is None:
+            return self.config.get_end_row()
+
+        col_num = self._column_letter_to_number(reference_column)
+        start_row = self.config.get_start_row()
+        detected = find_last_data_row(self.worksheet, col_num, start_row)
+        return detected
+
     def scan_sizes(self, column: Optional[str] = None, start_row: Optional[int] = None,
                    end_row: Optional[int] = None) -> List[str]:
         if self.worksheet is None:
             raise RuntimeError("Chưa chọn worksheet nào")
-        
+
         column = column or self.config.get_column()
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
-        
+        end_row = end_row or self.detect_end_row()
+
         try:
             sizes: Set[str] = set()
-            
+            col_num = self._column_letter_to_number(column)
+
             for row in range(start_row, end_row + 1):
-                cell_value = self.worksheet.Cells(row, self._column_letter_to_number(column)).Value
-                
+                cell_value = self.worksheet.Cells(row, col_num).Value
+
                 if cell_value is not None:
-                    size_str = str(cell_value).strip()
-                    
-                    if size_str.isdigit():
-                        size_str = size_str.zfill(3)
-                    
+                    size_str = normalize_size_value(cell_value)
+
                     if size_str:
+                        # Nếu giá trị gốc là số lẻ → ghi giá trị đã làm tròn lại vào Excel
+                        self._fix_decimal_cell(row, col_num, cell_value, size_str)
                         sizes.add(size_str)
 
             sorted_sizes = sorted(sizes, key=get_size_sort_key)
             logger.info(f"Quét được {len(sorted_sizes)} size khác nhau trong {column}[{start_row}:{end_row}]")
             return sorted_sizes
-            
+
         except Exception as e:
             logger.error(f"Lỗi khi quét sizes: {e}")
             raise RuntimeError(f"Không thể quét sizes: {str(e)}")
+
+    def _fix_decimal_cell(self, row: int, col_num: int, original_value, normalized: str) -> None:
+        """Ghi lại giá trị đã làm tròn lên vào Excel nếu cell gốc là số lẻ."""
+        try:
+            needs_fix = False
+
+            if isinstance(original_value, float) and original_value != int(original_value):
+                needs_fix = True
+            elif isinstance(original_value, str):
+                raw = original_value.strip()
+                check = raw.replace(',', '.') if ',' in raw and '.' not in raw else raw
+                try:
+                    num = float(check)
+                    if num != int(num):
+                        needs_fix = True
+                except (ValueError, TypeError):
+                    pass
+
+            if needs_fix:
+                rounded = int(normalized)  # "008" → 8
+                self.worksheet.Cells(row, col_num).Value = rounded
+                logger.info(
+                    f"Đã làm tròn size lẻ: {original_value} → {rounded} "
+                    f"tại cell ({row}, {col_num})"
+                )
+        except Exception as e:
+            logger.warning(f"Không thể ghi lại cell ({row}, {col_num}): {e}")
     
     def hide_rows_realtime(self, selected_sizes: List[str], column: Optional[str] = None,
                           start_row: Optional[int] = None, end_row: Optional[int] = None) -> int:
@@ -135,12 +172,12 @@ class ExcelCOMManager:
         
         column = column or self.config.get_column()
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
-        
+        end_row = end_row or self.detect_end_row()
+
         try:
             if self.excel_app:
                 self.excel_app.ScreenUpdating = False
-            
+
             selected_set = set(selected_sizes)
             hidden_count = 0
             col_num = self._column_letter_to_number(column)
@@ -149,9 +186,7 @@ class ExcelCOMManager:
                 cell_value = self.worksheet.Cells(row, col_num).Value
                 
                 if cell_value is not None:
-                    size_str = str(cell_value).strip()
-                    if size_str.isdigit():
-                        size_str = size_str.zfill(3)
+                    size_str = normalize_size_value(cell_value)
                     
                     if size_str not in selected_set:
                         self.worksheet.Rows(row).Hidden = True
@@ -179,18 +214,18 @@ class ExcelCOMManager:
             raise RuntimeError("Chưa chọn worksheet nào")
         
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
-        
+        end_row = end_row or self.detect_end_row()
+
         try:
             if self.excel_app:
                 self.excel_app.ScreenUpdating = False
-            
+
             for row in range(start_row, end_row + 1):
                 self.worksheet.Rows(row).Hidden = False
-            
+
             if self.excel_app:
                 self.excel_app.ScreenUpdating = True
-            
+
             logger.info(f"Đã hiện tất cả dòng từ {start_row} đến {end_row}")
             
         except Exception as e:

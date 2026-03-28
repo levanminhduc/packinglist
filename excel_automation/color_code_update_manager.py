@@ -1,16 +1,28 @@
 from typing import Tuple
 import logging
 
+from excel_automation.utils import find_last_data_row
+
 logger = logging.getLogger(__name__)
 
 
 class ColorCodeUpdateManager:
-    
+
     def __init__(self, config):
         self.config = config
+
+    def _find_last_data_row(self, worksheet, reference_column: str = 'A') -> int:
+        """Tự nhận diện dòng cuối cùng có dữ liệu."""
+        col_num = self._column_to_number(reference_column)
+        return find_last_data_row(worksheet, col_num, 19)
+    
+    def get_data_range(self, worksheet, reference_column: str = 'A') -> Tuple[int, int]:
+        start_row = 19
+        end_row = self._find_last_data_row(worksheet, reference_column)
+        return (start_row, end_row)
     
     def get_current_color_code(self, worksheet, column: str = 'E') -> str:
-        start_row = self.config.get_start_row()
+        start_row = 19
         col_num = self._column_to_number(column)
         
         try:
@@ -26,8 +38,8 @@ class ColorCodeUpdateManager:
             return ""
     
     def update_color_code_bulk(self, worksheet, new_color_code: str, column: str = 'E') -> int:
-        start_row = self.config.get_start_row()
-        end_row = self.config.get_end_row()
+        start_row = 19
+        end_row = self._find_last_data_row(worksheet, 'A')
         col_num = self._column_to_number(column)
         
         updated_count = 0

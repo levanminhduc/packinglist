@@ -5,7 +5,7 @@ import win32clipboard
 import logging
 
 from excel_automation.box_list_export_config import BoxListExportConfig
-from excel_automation.utils import get_size_sort_key
+from excel_automation.utils import get_size_sort_key, normalize_size_value, find_last_data_row
 
 logger = logging.getLogger(__name__)
 
@@ -100,21 +100,31 @@ class BoxListExportManager:
         box_end_row = self.config.get_box_end_row()
         size_column = self.config.get_size_column()
         size_data_start_row = self.config.get_size_data_start_row()
-        size_data_end_row = self.config.get_size_data_end_row()
 
+        # Tự nhận diện dòng cuối thay vì dùng config cứng
         size_column_number = self._column_letter_to_number(size_column)
+        size_data_end_row = find_last_data_row(
+            worksheet, size_column_number, size_data_start_row
+        )
 
         size_to_row: Dict[str, int] = {}
         for row in range(size_data_start_row, size_data_end_row + 1):
             cell_value = worksheet.Cells(row, size_column_number).Value
             if cell_value is not None:
-                size_str = str(cell_value).strip()
-                if size_str.isdigit():
-                    size_str = size_str.zfill(3)
+                size_str = normalize_size_value(cell_value)
                 if size_str:
                     size_to_row[size_str] = row
 
         box_ranges: Dict[str, List[Tuple[int, int, int, int]]] = {}
+
+        # Xác định cột cuối cùng có dữ liệu thay vì hardcode
+        try:
+            used_range = worksheet.UsedRange
+            max_column = used_range.Column + used_range.Columns.Count - 1
+            # Tối thiểu quét đến cột 38 (AL), tối đa theo UsedRange
+            scan_end_column = max(39, max_column + 1)
+        except Exception:
+            scan_end_column = 39  # Fallback: cột G→AL
 
         for size in selected_sizes:
             if size not in size_to_row:
@@ -125,7 +135,7 @@ class BoxListExportManager:
             size_row = size_to_row[size]
             size_box_ranges: List[Tuple[int, int, int, int]] = []
 
-            for column_number in range(7, 39):
+            for column_number in range(7, scan_end_column):
                 try:
                     quantity_value = worksheet.Cells(size_row, column_number).Value
 

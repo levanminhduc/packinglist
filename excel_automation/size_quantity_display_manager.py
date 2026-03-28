@@ -4,7 +4,7 @@ import logging
 
 from excel_automation.size_filter_config import SizeFilterConfig
 from excel_automation.carton_allocation_calculator import AllocationResult
-from excel_automation.utils import get_size_sort_key
+from excel_automation.utils import get_size_sort_key, normalize_size_value, find_last_data_row
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,12 @@ class SizeQuantityDisplayManager:
     def __init__(self, config: SizeFilterConfig):
         self.config = config
     
+    def _detect_end_row(self, worksheet: CDispatch, reference_column: str = 'A') -> int:
+        """Tự nhận diện dòng cuối cùng có dữ liệu."""
+        col_num = self._column_letter_to_number(reference_column)
+        start_row = self.config.get_start_row()
+        return find_last_data_row(worksheet, col_num, start_row)
+
     def _get_size_row_mapping(
         self,
         worksheet: CDispatch,
@@ -28,10 +34,8 @@ class SizeQuantityDisplayManager:
             cell_value = worksheet.Cells(row, col_num).Value
             
             if cell_value is not None:
-                size_str = str(cell_value).strip()
-                if size_str.isdigit():
-                    size_str = size_str.zfill(3)
-                
+                size_str = normalize_size_value(cell_value)
+
                 if size_str:
                     if size_str not in size_rows:
                         size_rows[size_str] = []
@@ -52,7 +56,7 @@ class SizeQuantityDisplayManager:
         end_row: Optional[int] = None
     ) -> int:
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(worksheet)
 
         size_row_mapping = self._get_size_row_mapping(
             worksheet,
@@ -109,7 +113,7 @@ class SizeQuantityDisplayManager:
         end_row: Optional[int] = None
     ) -> Dict[str, Optional[int]]:
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(worksheet)
 
         size_row_mapping = self._get_size_row_mapping(
             worksheet,
@@ -187,7 +191,7 @@ class SizeQuantityDisplayManager:
         box_end_row: int = 16
     ) -> Tuple[int, int]:
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(worksheet)
 
         size_row_mapping = self._get_size_row_mapping(
             worksheet,

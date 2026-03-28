@@ -4,7 +4,7 @@ from pathlib import Path
 import logging
 
 from excel_automation.size_filter_config import SizeFilterConfig
-from excel_automation.utils import get_size_sort_key
+from excel_automation.utils import get_size_sort_key, normalize_size_value
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,26 @@ class SizeFilterManager:
                 self.ws = self.wb.active
                 logger.warning(f"Sheet '{sheet_name}' không tồn tại, sử dụng sheet active: {self.ws.title}")
     
+    def _detect_end_row(self, column: Optional[str] = None) -> int:
+        """Tự nhận diện dòng cuối cùng có dữ liệu (openpyxl)."""
+        self._load_workbook()
+        column = column or self.config.get_column()
+        start_row = self.config.get_start_row()
+
+        row = start_row
+        while row <= start_row + 10000:
+            cell_value = self.ws[f'{column}{row}'].value
+            if cell_value is None or str(cell_value).strip() == "":
+                break
+            row += 1
+
+        result = row - 1
+        if result < start_row:
+            return self.config.get_end_row()
+
+        logger.info(f"Nhận diện dòng cuối (openpyxl): {result}")
+        return result
+
     def _validate_row_range(self, start_row: int, end_row: int) -> None:
         if start_row < 1:
             raise ValueError("Dòng bắt đầu phải >= 1")
@@ -52,7 +72,7 @@ class SizeFilterManager:
                    end_row: Optional[int] = None) -> List[str]:
         column = column or self.config.get_column()
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(column)
         
         self._validate_row_range(start_row, end_row)
         self._load_workbook()
@@ -63,11 +83,8 @@ class SizeFilterManager:
             cell_value = self.ws[f'{column}{row}'].value
             
             if cell_value is not None:
-                size_str = str(cell_value).strip()
-                
-                if size_str.isdigit():
-                    size_str = size_str.zfill(3)
-                
+                size_str = normalize_size_value(cell_value)
+
                 if size_str:
                     sizes.add(size_str)
 
@@ -80,7 +97,7 @@ class SizeFilterManager:
                             end_row: Optional[int] = None) -> Dict[str, List[int]]:
         column = column or self.config.get_column()
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(column)
         
         self._validate_row_range(start_row, end_row)
         self._load_workbook()
@@ -91,10 +108,8 @@ class SizeFilterManager:
             cell_value = self.ws[f'{column}{row}'].value
             
             if cell_value is not None:
-                size_str = str(cell_value).strip()
-                if size_str.isdigit():
-                    size_str = size_str.zfill(3)
-                
+                size_str = normalize_size_value(cell_value)
+
                 if size_str:
                     if size_str not in size_rows:
                         size_rows[size_str] = []
@@ -106,7 +121,7 @@ class SizeFilterManager:
                          start_row: Optional[int] = None, end_row: Optional[int] = None) -> int:
         column = column or self.config.get_column()
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(column)
         
         self._validate_row_range(start_row, end_row)
         self._load_workbook()
@@ -118,10 +133,8 @@ class SizeFilterManager:
             cell_value = self.ws[f'{column}{row}'].value
             
             if cell_value is not None:
-                size_str = str(cell_value).strip()
-                if size_str.isdigit():
-                    size_str = size_str.zfill(3)
-                
+                size_str = normalize_size_value(cell_value)
+
                 if size_str not in selected_set:
                     self.ws.row_dimensions[row].hidden = True
                     hidden_count += 1
@@ -136,7 +149,7 @@ class SizeFilterManager:
     
     def reset_all_rows(self, start_row: Optional[int] = None, end_row: Optional[int] = None) -> None:
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.config.get_end_row()
+        end_row = end_row or self._detect_end_row(column)
         
         self._validate_row_range(start_row, end_row)
         self._load_workbook()

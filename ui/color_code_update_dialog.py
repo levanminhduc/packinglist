@@ -8,11 +8,12 @@ from excel_automation.dialog_config_manager import DialogConfigManager
 
 class ColorCodeUpdateDialog:
     
-    def __init__(self, parent: tk.Tk, current_color_code: str, on_save_callback: Callable[[str], None], config):
+    def __init__(self, parent: tk.Tk, current_color_code: str, on_save_callback: Callable[[str], None], config, end_row: int):
         self.parent = parent
         self.current_color_code = current_color_code
         self.on_save_callback = on_save_callback
         self.config = config
+        self.end_row = end_row
         self.dialog_config = DialogConfigManager()
 
         self.dialog = tk.Toplevel(parent)
@@ -118,13 +119,12 @@ class ColorCodeUpdateDialog:
             messagebox.showerror("Lỗi", error_msg)
             return
         
-        start_row = self.config.get_start_row()
-        end_row = self.config.get_end_row()
+        start_row = 19
         
         confirm_msg = (
             f"Bạn có chắc muốn cập nhật mã màu thành:\n\n"
             f"'{new_color}\n\n"
-            f"Tất cả dòng từ {start_row} đến {end_row} trong cột E sẽ được cập nhật?"
+            f"Tất cả dòng từ {start_row} đến {self.end_row} trong cột E sẽ được cập nhật?"
         )
         
         if messagebox.askyesno("Xác Nhận", confirm_msg):
