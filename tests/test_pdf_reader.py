@@ -94,5 +94,82 @@ class TestExtractPageText:
         assert "Trang 3" in result or "trang 3" in result
 
 
+import pdfplumber
+from reportlab.pdfgen import canvas as pdf_canvas
+from excel_automation.pdf_reader import extract_text_from_pdf
+
+
+@pytest.fixture
+def digital_pdf(tmp_path):
+    """Tạo file PDF digital (có text) để test."""
+    pdf_path = tmp_path / "test_digital.pdf"
+    c = pdf_canvas.Canvas(str(pdf_path))
+    c.drawString(72, 700, "Hello World from Page 1")
+    c.showPage()
+    c.drawString(72, 700, "Content on Page 2")
+    c.showPage()
+    c.save()
+    return str(pdf_path)
+
+
+class TestExtractTextFromPdf:
+    """Test cases cho extract_text_from_pdf function."""
+
+    def test_extract_digital_pdf(self, digital_pdf):
+        """Extract text từ PDF digital trả về nội dung các trang."""
+        result = extract_text_from_pdf(digital_pdf)
+        assert "Hello World from Page 1" in result
+        assert "Content on Page 2" in result
+
+    def test_extract_adds_page_markers(self, digital_pdf):
+        """Kết quả có đánh dấu trang."""
+        result = extract_text_from_pdf(digital_pdf)
+        assert "--- Trang 1 ---" in result
+        assert "--- Trang 2 ---" in result
+
+    def test_file_not_found_raises_error(self):
+        """File không tồn tại raise FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            extract_text_from_pdf("nonexistent_file.pdf")
+
+    def test_non_pdf_file_raises_error(self, tmp_path):
+        """File không phải PDF raise ValueError."""
+        txt_file = tmp_path / "test.txt"
+        txt_file.write_text("not a pdf")
+        with pytest.raises(ValueError):
+            extract_text_from_pdf(str(txt_file))
+
+    def test_progress_callback_called(self, digital_pdf):
+        """on_progress callback được gọi cho mỗi trang."""
+        progress_calls = []
+
+        def on_progress(page_num, total_pages, is_ocr):
+            progress_calls.append((page_num, total_pages, is_ocr))
+
+        extract_text_from_pdf(digital_pdf, on_progress=on_progress)
+        assert len(progress_calls) == 2
+        assert progress_calls[0] == (1, 2, False)
+        assert progress_calls[1] == (2, 2, False)
+
+    def test_empty_pdf_returns_empty_string(self, tmp_path):
+        """PDF không có trang nào trả về chuỗi rỗng."""
+        pdf_path = tmp_path / "empty.pdf"
+        c = pdf_canvas.Canvas(str(pdf_path))
+        c.save()
+        result = extract_text_from_pdf(str(pdf_path))
+        assert isinstance(result, str)
+
+    def test_password_protected_pdf_raises_runtime_error(self, tmp_path):
+        """PDF bị password raise RuntimeError với thông báo rõ."""
+        from reportlab.lib.pdfencrypt import StandardEncryption
+        pdf_path = tmp_path / "protected.pdf"
+        enc = StandardEncryption("userpass", ownerPassword="ownerpass")
+        c = pdf_canvas.Canvas(str(pdf_path), encrypt=enc)
+        c.drawString(72, 700, "Secret content")
+        c.save()
+        with pytest.raises(RuntimeError, match="[Pp]assword|mật khẩu"):
+            extract_text_from_pdf(str(pdf_path))
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

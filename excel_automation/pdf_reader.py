@@ -119,3 +119,85 @@ def extract_page_text(page, page_number: int) -> str:
     except Exception as e:
         logger.error(f"Lỗi OCR trang {page_number}: {e}")
         return f"[Trang {page_number}: Lỗi khi OCR — {e}]"
+
+
+def extract_text_from_pdf(
+    file_path: str,
+    on_progress: Optional[Callable] = None
+) -> str:
+    """
+    Extract toàn bộ text từ file PDF.
+
+    Args:
+        file_path: Đường dẫn file PDF
+        on_progress: Callback(page_num, total_pages, is_ocr)
+
+    Returns:
+        Text gộp từ tất cả trang PDF
+
+    Raises:
+        FileNotFoundError: File không tồn tại
+        ValueError: File không phải PDF
+        RuntimeError: PDF bị password hoặc lỗi khác
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File không tồn tại: {file_path}")
+
+    if not file_path.lower().endswith(".pdf"):
+        raise ValueError(f"File không phải PDF: {file_path}")
+
+    import pdfplumber
+
+    all_text_parts = []
+
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            total_pages = len(pdf.pages)
+
+            if total_pages == 0:
+                return ""
+
+            for i, page in enumerate(pdf.pages):
+                page_number = i + 1
+                is_ocr = is_scanned_page(page)
+
+                if on_progress:
+                    on_progress(page_number, total_pages, is_ocr)
+
+                page_text = extract_page_text(page, page_number)
+
+                all_text_parts.append(f"--- Trang {page_number} ---")
+                all_text_parts.append(page_text if page_text else "")
+
+        return "\n".join(all_text_parts)
+
+    except Exception as e:
+        if isinstance(e, (FileNotFoundError, ValueError)):
+            raise
+        # Check for password/encryption errors — walk the full exception chain.
+        # pdfplumber wraps PDFPasswordIncorrect in PdfminerException via __context__
+        # (not __cause__), and both have empty str() representations.
+        def _is_password_exc(exc) -> bool:
+            seen = set()
+            current = exc
+            while current is not None and id(current) not in seen:
+                seen.add(id(current))
+                name = type(current).__name__.lower()
+                msg = str(current).lower()
+                if (
+                    "password" in name or "incorrect" in name
+                    or "password" in msg or "encrypted" in msg
+                ):
+                    return True
+                current = current.__cause__ or current.__context__
+            return False
+
+        if _is_password_exc(e):
+            raise RuntimeError(
+                f"File PDF được bảo vệ bằng mật khẩu (password). "
+                f"Vui lòng mở khóa file trước khi đọc."
+            ) from e
+        logger.error(f"Lỗi khi đọc PDF: {e}")
+        raise RuntimeError(f"Lỗi khi đọc PDF: {e}") from e
+
+
