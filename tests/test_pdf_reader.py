@@ -88,9 +88,12 @@ class TestExtractPageText:
 
     def test_scanned_page_without_tesseract_returns_message(self):
         """Trang scan khi không có Tesseract trả về thông báo hướng dẫn."""
+        from unittest.mock import patch
         page = MagicMock()
         page.extract_text.return_value = ""
-        result = extract_page_text(page, page_number=3)
+        with patch("excel_automation.pdf_reader.check_ocr_available",
+                   return_value={"tesseract": False, "poppler": False}):
+            result = extract_page_text(page, page_number=3)
         assert "Trang 3" in result or "trang 3" in result
 
 
@@ -157,7 +160,7 @@ class TestExtractTextFromPdf:
         c = pdf_canvas.Canvas(str(pdf_path))
         c.save()
         result = extract_text_from_pdf(str(pdf_path))
-        assert isinstance(result, str)
+        assert result == ""
 
     def test_password_protected_pdf_raises_runtime_error(self, tmp_path):
         """PDF bị password raise RuntimeError với thông báo rõ."""

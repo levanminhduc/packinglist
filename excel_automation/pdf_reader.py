@@ -80,7 +80,7 @@ def extract_page_text(page, page_number: int) -> str:
         Text extract được từ trang
     """
     if not is_scanned_page(page):
-        return page.extract_text()
+        return page.extract_text() or ""
 
     # Trang scan → thử OCR
     ocr_status = check_ocr_available()
