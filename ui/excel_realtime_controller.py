@@ -21,6 +21,7 @@ from excel_automation.po_update_manager import POUpdateManager
 from excel_automation.color_code_update_manager import ColorCodeUpdateManager
 from ui.size_quantity_input_dialog import SizeQuantityInputDialog
 from excel_automation.pdf_po_parser import PDFPOParser
+from ui.ui_config import UIConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class ExcelRealtimeController:
         self.root = root
         self.config = SizeFilterConfig()
         self.dialog_config = DialogConfigManager()
+        self.ui_config = UIConfig()
         self.com_manager: Optional[ExcelCOMManager] = None
         self.current_file: Optional[str] = None
         self.sheet_names: List[str] = []
@@ -323,12 +325,15 @@ class ExcelRealtimeController:
             filetypes=[
                 ("Excel Files", "*.xlsx *.xls *.xlsm *.xlsb"),
                 ("All Files", "*.*")
-            ]
+            ],
+            initialdir=self.ui_config.get_last_directory("excel_open")
         )
-        
+
         if not file_path:
             return
-        
+
+        self.ui_config.set_last_directory("excel_open", file_path)
+
         try:
             self.status_label.config(text=f"Đang mở file: {Path(file_path).name}...")
             self.root.update()
@@ -1178,10 +1183,13 @@ class ExcelRealtimeController:
 
         file_path = filedialog.askopenfilename(
             title="Chọn file PDF Purchase Order",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            initialdir=self.ui_config.get_last_directory("pdf_import_po")
         )
         if not file_path:
             return
+
+        self.ui_config.set_last_directory("pdf_import_po", file_path)
 
         from ui.pdf_import_dialog import ImportProgressDialog, PDFImportDialog
 
