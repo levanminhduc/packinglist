@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 
@@ -32,7 +33,12 @@ class UIConfig:
             "text_color": "#000000"
         },
         "recent_files": [],
-        "last_opened_file": None
+        "last_opened_file": None,
+        "last_directories": {
+            "excel_open": None,
+            "pdf_import_po": None,
+            "pdf_reader": None
+        }
     }
 
     def __init__(self, config_file: str = "config/ui_config.json"):
@@ -136,4 +142,14 @@ class UIConfig:
         self.config = self.DEFAULT_CONFIG.copy()
         self._save_config()
         logger.info("Đã reset cấu hình về mặc định")
+
+    def get_last_directory(self, key: str) -> Optional[str]:
+        directory = self.get(f'last_directories.{key}')
+        if directory and Path(directory).is_dir():
+            return directory
+        return None
+
+    def set_last_directory(self, key: str, file_path: str) -> None:
+        directory = str(Path(file_path).parent)
+        self.set(f'last_directories.{key}', directory)
 
