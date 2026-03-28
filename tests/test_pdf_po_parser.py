@@ -70,3 +70,40 @@ class TestColorExtraction:
         text = "No article numbers here"
         with pytest.raises(RuntimeError, match="Không tìm thấy Article Number"):
             PDFPOParser._extract_color_code(text)
+
+
+class TestSizeQuantityExtraction:
+
+    def test_extract_single_size_qty(self):
+        text = "000010 62183104046 AW Stretch Trousers 60 20.290 1217.40 USD\nSize:46"
+        result = PDFPOParser._extract_size_quantities(text)
+        assert result == {"046": 60}
+
+    def test_extract_multiple_sizes(self):
+        text = (
+            "000010 62183104046 AW Stretch Trousers 60 20.290 1217.40 USD\nSize:46\n"
+            "000020 62183104048 AW Stretch Trousers 140 20.290 2840.60 USD\nSize:48\n"
+            "000030 62183104050 AW Stretch Trousers 200 20.290 4058.00 USD\nSize:50"
+        )
+        result = PDFPOParser._extract_size_quantities(text)
+        assert result == {"046": 60, "048": 140, "050": 200}
+
+    def test_normalize_size_below_100(self):
+        text = "000010 62183104096 AW Stretch Trousers 20 20.290 405.80 USD\nSize:96"
+        result = PDFPOParser._extract_size_quantities(text)
+        assert result == {"096": 20}
+
+    def test_normalize_size_100_and_above(self):
+        text = "000010 62183104100 AW Stretch Trousers 20 20.290 405.80 USD\nSize:100"
+        result = PDFPOParser._extract_size_quantities(text)
+        assert result == {"100": 20}
+
+    def test_normalize_size_large(self):
+        text = "000010 62183104148 AW Stretch Trousers 20 20.290 405.80 USD\nSize:148"
+        result = PDFPOParser._extract_size_quantities(text)
+        assert result == {"148": 20}
+
+    def test_no_sizes_found(self):
+        text = "No sizes here"
+        with pytest.raises(RuntimeError, match="Không tìm thấy dữ liệu Size"):
+            PDFPOParser._extract_size_quantities(text)
