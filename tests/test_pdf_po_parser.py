@@ -52,3 +52,21 @@ class TestPOExtraction:
         text = "This text has no PO number"
         with pytest.raises(RuntimeError, match="Không tìm thấy PO Number"):
             PDFPOParser._extract_po_number(text)
+
+
+class TestColorExtraction:
+
+    def test_extract_color_from_article_no(self):
+        text = "000010 62183104046 AW Stretch Trousers 60 20.290 1217.40 USD"
+        result = PDFPOParser._extract_color_code(text)
+        assert result == "3104"
+
+    def test_extract_color_different_article(self):
+        text = "000010 62189999046 Some Product 60 20.290 1217.40 USD"
+        result = PDFPOParser._extract_color_code(text)
+        assert result == "9999"
+
+    def test_extract_color_not_found(self):
+        text = "No article numbers here"
+        with pytest.raises(RuntimeError, match="Không tìm thấy Article Number"):
+            PDFPOParser._extract_color_code(text)

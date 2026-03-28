@@ -29,3 +29,14 @@ class PDFPOParser:
         po_part = raw_po.split('-')[0]
         cleaned = po_part.lstrip('0') or '0'
         return (raw_po, cleaned)
+
+    @staticmethod
+    def _extract_color_code(full_text: str) -> str:
+        pattern = r'(?:^|\s)(\d{11,})\s'
+        match = re.search(pattern, full_text)
+        if not match:
+            raise RuntimeError("Không tìm thấy Article Number trong file PDF")
+
+        article_no = match.group(1)
+        color_code = article_no[4:8]
+        return color_code
