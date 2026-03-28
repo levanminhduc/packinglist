@@ -11,6 +11,10 @@
     "size_filter_config": {
       "width": 450,
       "height": 550
+    },
+    "pdf_import": {
+      "width": 550,
+      "height": 600
     }
   },
   "main_window": {

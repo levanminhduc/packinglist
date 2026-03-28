@@ -20,6 +20,7 @@ from excel_automation.carton_allocation_calculator import (
 from excel_automation.po_update_manager import POUpdateManager
 from excel_automation.color_code_update_manager import ColorCodeUpdateManager
 from ui.size_quantity_input_dialog import SizeQuantityInputDialog
+from excel_automation.pdf_po_parser import PDFPOParser
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +160,20 @@ class ExcelRealtimeController:
         style.map('Yellow.TButton',
             background=[('active', 'gold'), ('pressed', 'orange')])
 
+        style.configure('Green.TButton', background='#4CAF50')
+        style.map('Green.TButton',
+            background=[('active', '#66BB6A'), ('pressed', '#388E3C')])
+
+        self.import_pdf_btn = ttk.Button(
+            self.action_frame,
+            text="📄 Import PO từ PDF",
+            command=self._import_po_from_pdf,
+            width=20,
+            style='Green.TButton'
+        )
+        self.action_buttons.append(self.import_pdf_btn)
+
         buttons_config: List[Tuple[str, Callable]] = [
-            ("🔍 Quét Sizes", self._scan_sizes),
             ("👁️ Ẩn dòng ngay", self._hide_rows_realtime),
             ("👁️‍🗨️ Hiện tất cả", self._show_all_rows),
             ("📝 Nhập Số Lượng Size", self._input_size_quantities),
@@ -1157,6 +1170,127 @@ class ExcelRealtimeController:
         except Exception as e:
             logger.error(f"Lỗi khi mở dialog Update PO: {e}")
             messagebox.showerror("Lỗi", f"Không thể mở dialog Update PO:\n{str(e)}")
+
+    def _import_po_from_pdf(self) -> None:
+        if not self.com_manager:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
+            return
+
+        file_path = filedialog.askopenfilename(
+            title="Chọn file PDF Purchase Order",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return
+
+        from ui.pdf_import_dialog import ImportProgressDialog, PDFImportDialog
+
+        progress = ImportProgressDialog(self.root)
+        pdf_data = None
+        available_sizes = []
+
+        def run_parse_steps():
+            nonlocal pdf_data, available_sizes
+
+            try:
+                progress.start_step(0)
+                progress.complete_step(0)
+
+                progress.start_step(1)
+                pdf_data = PDFPOParser.parse(file_path)
+                progress.complete_step(1)
+
+                progress.start_step(2)
+                available_sizes = self.com_manager.scan_sizes()
+                self.available_sizes = available_sizes
+                progress.complete_step(2)
+
+                progress.dialog.destroy()
+
+                PDFImportDialog(
+                    self.root,
+                    pdf_data,
+                    available_sizes,
+                    lambda po, color, sizes: self._execute_import(po, color, sizes)
+                )
+
+            except Exception as e:
+                step = progress.current_step
+                logger.error(f"Lỗi tại bước {step}: {e}")
+                progress.show_error(step, str(e), run_parse_steps)
+
+        run_parse_steps()
+
+    def _execute_import(self, po: str, color: str, size_quantities: Dict[str, int]) -> None:
+        from ui.pdf_import_dialog import ImportProgressDialog
+
+        progress = ImportProgressDialog(self.root)
+
+        for i in range(3):
+            progress.complete_step(i)
+
+        def run_write_steps(start_from: int = 3):
+            try:
+                if start_from <= 3:
+                    progress.start_step(3)
+                    po_manager = POUpdateManager(self.config)
+                    po_manager.update_po_bulk(self.com_manager.worksheet, po)
+                    progress.complete_step(3)
+
+                if start_from <= 4:
+                    progress.start_step(4)
+                    color_manager = ColorCodeUpdateManager(self.config)
+                    color_manager.update_color_code_bulk(self.com_manager.worksheet, color)
+                    progress.complete_step(4)
+
+                if start_from <= 5:
+                    progress.start_step(5)
+                    self._apply_imported_sizes(size_quantities)
+                    progress.complete_step(5)
+
+                progress.start_step(6)
+                self._update_po_color_display()
+                self._update_box_count_display()
+                progress.complete_step(6)
+
+                progress.finish()
+
+                self.status_label.config(
+                    text=f"Import thành công: PO={po}, Color={color}, {len(size_quantities)} sizes"
+                )
+                messagebox.showinfo(
+                    "Thành Công",
+                    f"Đã import PO từ PDF:\n\n"
+                    f"PO: {po}\n"
+                    f"Color: {color}\n"
+                    f"Sizes: {len(size_quantities)}\n"
+                    f"Total Qty: {sum(size_quantities.values()):,}"
+                )
+
+            except Exception as e:
+                step = progress.current_step
+                logger.error(f"Lỗi tại bước {step}: {e}")
+                progress.show_error(step, str(e), lambda: run_write_steps(step))
+
+        run_write_steps()
+
+    def _apply_imported_sizes(self, size_quantities: Dict[str, int]) -> None:
+        if not self.available_sizes:
+            self.available_sizes = self.com_manager.scan_sizes()
+
+        if not self.checkboxes:
+            self._scan_sizes()
+
+        for size, qty in size_quantities.items():
+            if size in self.checkboxes:
+                self.checkboxes[size].set(True)
+                entry = self.quantity_entries.get(size)
+                if entry:
+                    entry.delete(0, tk.END)
+                    entry.insert(0, str(qty))
+
+        self._update_box_count_display()
+        self._reset_auto_save_timer()
 
     def _input_size_quantities(self) -> None:
         if not self.com_manager:
