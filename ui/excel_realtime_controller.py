@@ -1,10 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from typing import List, Dict, Optional, Callable, Tuple
+from typing import List, Dict, Optional, Callable, Tuple, TypeVar, Any
 from pathlib import Path
 import logging
 import math
 import re
+import time
 
 from excel_automation.excel_com_manager import ExcelCOMManager
 from excel_automation.size_filter_config import SizeFilterConfig
@@ -50,6 +51,10 @@ class ExcelRealtimeController:
 
         self._auto_save_timer_id: Optional[str] = None
         self._auto_save_pending: bool = False
+
+        self._auto_refresh_sizes_timer_id: Optional[str] = None
+        self._auto_refresh_interval: int = 3000
+        self._cached_sizes: List[str] = []
 
         self.po_updated: bool = False
         self.color_updated: bool = False
@@ -161,6 +166,7 @@ class ExcelRealtimeController:
             ("📝 Nhập Số Lượng Size", self._input_size_quantities),
             ("💾 Ghi vào Excel", self._write_quantities_to_excel),
             ("📦 Xuất Danh Sách Thùng", self._export_box_list),
+            ("📄 Đọc PDF", self._open_pdf_reader),
         ]
 
         for text, command in buttons_config:
@@ -344,6 +350,8 @@ class ExcelRealtimeController:
 
             self._update_po_color_display()
             self._highlight_update_buttons()
+
+            self._start_auto_refresh_sizes()
             
             logger.info(f"Đã mở file qua COM: {file_path}")
             
@@ -459,6 +467,8 @@ class ExcelRealtimeController:
             self._update_po_color_display()
             self._highlight_update_buttons()
 
+            self._start_auto_refresh_sizes()
+
             logger.info(f"Đã chuyển sang sheet: {selected_sheet}")
 
         except Exception as e:
@@ -533,12 +543,16 @@ class ExcelRealtimeController:
                 foreground="green"
             )
 
+            detected_end = self.com_manager.detect_end_row()
+
             self.status_label.config(
                 text=f"Đã quét {len(self.available_sizes)} sizes - "
                 f"Cột {self.config.get_column()} "
-                f"[{self.config.get_start_row()}:{self.config.get_end_row()}]"
+                f"[{self.config.get_start_row()}:{detected_end}]"
             )
             
+            self._cached_sizes = self.available_sizes.copy()
+
             logger.info(f"Đã quét {len(self.available_sizes)} sizes")
 
             self._load_quantities_from_excel()
@@ -1063,6 +1077,8 @@ class ExcelRealtimeController:
 
             color_manager = ColorCodeUpdateManager(self.config)
             current_color = color_manager.get_current_color_code(self.com_manager.worksheet)
+            
+            start_row, end_row = color_manager.get_data_range(self.com_manager.worksheet)
 
             def on_save(new_color: str) -> None:
                 try:
@@ -1090,7 +1106,7 @@ class ExcelRealtimeController:
                     messagebox.showerror("Lỗi", f"Không thể cập nhật mã màu:\n{str(e)}")
                     self.status_label.config(text="Lỗi khi cập nhật mã màu")
 
-            ColorCodeUpdateDialog(self.root, current_color, on_save, self.config)
+            ColorCodeUpdateDialog(self.root, current_color, on_save, self.config, end_row)
 
         except Exception as e:
             logger.error(f"Lỗi khi mở dialog Update Color Code: {e}")
@@ -1107,6 +1123,8 @@ class ExcelRealtimeController:
 
             po_manager = POUpdateManager(self.config)
             current_po = po_manager.get_current_po(self.com_manager.worksheet)
+            
+            start_row, end_row = po_manager.get_data_range(self.com_manager.worksheet)
 
             def on_save(new_po: str) -> None:
                 try:
@@ -1134,7 +1152,7 @@ class ExcelRealtimeController:
                     messagebox.showerror("Lỗi", f"Không thể cập nhật PO:\n{str(e)}")
                     self.status_label.config(text="Lỗi khi cập nhật PO")
 
-            POUpdateDialog(self.root, current_po, on_save, self.config)
+            POUpdateDialog(self.root, current_po, on_save, self.config, end_row)
 
         except Exception as e:
             logger.error(f"Lỗi khi mở dialog Update PO: {e}")
@@ -1370,6 +1388,22 @@ class ExcelRealtimeController:
             )
             self.status_label.config(text="Lỗi khi xuất danh sách thùng")
 
+    def _open_pdf_reader(self) -> None:
+        """Mở dialog đọc PDF."""
+        try:
+            from ui.pdf_reader_dialog import PdfReaderDialog
+            PdfReaderDialog(self.root)
+        except ImportError as e:
+            messagebox.showerror(
+                "Lỗi",
+                f"Không thể mở tính năng đọc PDF.\n"
+                f"Hãy cài đặt thư viện: pip install pdfplumber pdf2image pytesseract Pillow\n\n"
+                f"Chi tiết: {e}"
+            )
+        except Exception as e:
+            logger.error(f"Lỗi mở PDF Reader: {e}")
+            messagebox.showerror("Lỗi", f"Lỗi mở PDF Reader: {e}")
+
     def _update_po_color_display(self) -> None:
         if not self.com_manager or not self.com_manager.worksheet:
             return
@@ -1426,7 +1460,107 @@ class ExcelRealtimeController:
             col_num //= 26
         return result
 
+    def _start_auto_refresh_sizes(self) -> None:
+        self._stop_auto_refresh_sizes()
+        self._auto_refresh_sizes_timer_id = self.root.after(
+            self._auto_refresh_interval,
+            self._check_sizes_changed
+        )
+
+    def _stop_auto_refresh_sizes(self) -> None:
+        if self._auto_refresh_sizes_timer_id is not None:
+            try:
+                self.root.after_cancel(self._auto_refresh_sizes_timer_id)
+            except Exception:
+                pass
+            self._auto_refresh_sizes_timer_id = None
+
+    def _check_sizes_changed(self) -> None:
+        try:
+            if not self.com_manager:
+                return
+
+            new_sizes = self.com_manager.scan_sizes()
+
+            if set(new_sizes) != set(self._cached_sizes):
+                current_quantities: Dict[str, str] = {}
+                for size, entry in self.quantity_entries.items():
+                    value = entry.get().strip()
+                    if value:
+                        current_quantities[size] = value
+
+                self._cached_sizes = new_sizes.copy()
+                self.available_sizes = new_sizes
+
+                for widget in self.scrollable_frame.winfo_children():
+                    widget.destroy()
+                self.checkboxes.clear()
+                self.quantity_entries.clear()
+
+                if not self.available_sizes:
+                    ttk.Label(
+                        self.scrollable_frame,
+                        text="Không tìm thấy size nào",
+                        foreground="red"
+                    ).pack(pady=20)
+
+                    self.sizes_count_label.config(
+                        text="0 sizes",
+                        foreground="red"
+                    )
+                else:
+                    num_columns = 5
+                    for col in range(num_columns):
+                        self.scrollable_frame.columnconfigure(col, weight=1, uniform="size_col")
+
+                    for idx, size in enumerate(self.available_sizes):
+                        row = idx // num_columns
+                        col = idx % num_columns
+
+                        size_frame = ttk.Frame(self.scrollable_frame)
+                        size_frame.grid(row=row, column=col, sticky=tk.EW, padx=2, pady=2)
+
+                        var = tk.BooleanVar(value=False)
+                        self.checkboxes[size] = var
+
+                        cb = ttk.Checkbutton(
+                            size_frame,
+                            text=size,
+                            variable=var,
+                            width=8,
+                            command=lambda s=size: self._on_checkbox_changed(s)
+                        )
+                        cb.pack(side=tk.LEFT)
+
+                        entry = ttk.Entry(size_frame, width=5)
+                        entry.pack(side=tk.LEFT, padx=(2, 0))
+                        entry.bind('<KeyRelease>', lambda e, s=size: self._on_quantity_changed(s, e))
+                        entry.bind('<MouseWheel>', lambda e: self.sizes_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+                        self.quantity_entries[size] = entry
+
+                        if size in current_quantities:
+                            entry.insert(0, current_quantities[size])
+                            if current_quantities[size].isdigit() and int(current_quantities[size]) > 0:
+                                var.set(True)
+
+                    self.sizes_count_label.config(
+                        text=f"Tìm thấy {len(self.available_sizes)} sizes",
+                        foreground="green"
+                    )
+
+                self._update_box_count_display()
+
+        except Exception as e:
+            logger.error(f"Lỗi khi check sizes changed: {e}")
+        finally:
+            self._auto_refresh_sizes_timer_id = self.root.after(
+                self._auto_refresh_interval,
+                self._check_sizes_changed
+            )
+
     def _on_closing(self) -> None:
+        self._stop_auto_refresh_sizes()
+
         if self._auto_save_timer_id is not None:
             try:
                 self.root.after_cancel(self._auto_save_timer_id)
@@ -1465,25 +1599,6 @@ class ExcelRealtimeController:
             y = self.root.winfo_y()
             self.dialog_config.save_main_window_geometry(width, height, x, y)
         except Exception as e:
-            logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
-
-            height = self.root.winfo_height()
-            x = self.root.winfo_x()
-            y = self.root.winfo_y()
-            self.dialog_config.save_main_window_geometry(width, height, x, y)
-        except Exception as e:
-            logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
-
-
-
-
-            height = self.root.winfo_height()
-            x = self.root.winfo_x()
-            y = self.root.winfo_y()
-            self.dialog_config.save_main_window_geometry(width, height, x, y)
-        except Exception as e:
-            logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
-
             logger.error(f"Lỗi khi lưu geometry cửa sổ chính: {e}")
 
 
