@@ -1,0 +1,29 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import pytest
+from excel_automation.pdf_po_parser import PDFPOData
+
+
+class TestPDFPOData:
+
+    def test_create_pdf_po_data(self):
+        data = PDFPOData(
+            raw_po="0009013330-1",
+            po_number="9013330",
+            color_code="3104",
+            size_quantities={"046": 60, "048": 140},
+            total_quantity=200,
+            source_file="Test.pdf"
+        )
+        assert data.po_number == "9013330"
+        assert data.color_code == "3104"
+        assert data.size_quantities["046"] == 60
+        assert data.total_quantity == 200
+
+    def test_default_values(self):
+        data = PDFPOData(raw_po="", po_number="", color_code="")
+        assert data.size_quantities == {}
+        assert data.total_quantity == 0
+        assert data.source_file == ""
