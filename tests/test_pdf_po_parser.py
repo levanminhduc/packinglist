@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from excel_automation.pdf_po_parser import PDFPOData
+from excel_automation.pdf_po_parser import PDFPOData, PDFPOParser
 
 
 class TestPDFPOData:
@@ -27,3 +27,28 @@ class TestPDFPOData:
         assert data.size_quantities == {}
         assert data.total_quantity == 0
         assert data.source_file == ""
+
+
+class TestPOExtraction:
+
+    def test_extract_po_standard(self):
+        text = "P. O. No. Your reference\n0009013330-1 Marina Scholander"
+        result = PDFPOParser._extract_po_number(text)
+        assert result == ("0009013330-1", "9013330")
+
+    def test_extract_po_strip_leading_zeros(self):
+        text = "P. O. No. Your reference\n0009013330-1 Someone"
+        raw, cleaned = PDFPOParser._extract_po_number(text)
+        assert raw == "0009013330-1"
+        assert cleaned == "9013330"
+
+    def test_extract_po_no_leading_zeros(self):
+        text = "P. O. No. Your reference\n9013330-2 Someone"
+        raw, cleaned = PDFPOParser._extract_po_number(text)
+        assert raw == "9013330-2"
+        assert cleaned == "9013330"
+
+    def test_extract_po_not_found(self):
+        text = "This text has no PO number"
+        with pytest.raises(RuntimeError, match="Không tìm thấy PO Number"):
+            PDFPOParser._extract_po_number(text)
