@@ -40,6 +40,10 @@ class DialogConfigManager:
             "pdf_reader": {
                 "width": 700,
                 "height": 500
+            },
+            "pdf_import": {
+                "width": 600,
+                "height": 550
             }
         }
     }
@@ -97,6 +101,36 @@ class DialogConfigManager:
             logger.info(f"Đã lưu kích thước dialog {dialog_name}: {width}x{height}")
         except Exception as e:
             logger.error(f"Lỗi khi lưu kích thước dialog {dialog_name}: {e}")
+
+    def get_dialog_geometry(self, dialog_name: str) -> Tuple[int, int, Optional[int], Optional[int]]:
+        try:
+            dialog_config = self.config.get('dialogs', {}).get(dialog_name, {})
+            width = dialog_config.get('width', 400)
+            height = dialog_config.get('height', 300)
+            x = dialog_config.get('x')
+            y = dialog_config.get('y')
+            return width, height, x, y
+        except Exception as e:
+            logger.error(f"Lỗi khi đọc geometry dialog {dialog_name}: {e}")
+            return 400, 300, None, None
+
+    def save_dialog_geometry(self, dialog_name: str, width: int, height: int, x: int, y: int) -> None:
+        try:
+            if 'dialogs' not in self.config:
+                self.config['dialogs'] = {}
+
+            if dialog_name not in self.config['dialogs']:
+                self.config['dialogs'][dialog_name] = {}
+
+            self.config['dialogs'][dialog_name]['width'] = width
+            self.config['dialogs'][dialog_name]['height'] = height
+            self.config['dialogs'][dialog_name]['x'] = x
+            self.config['dialogs'][dialog_name]['y'] = y
+
+            self._save_config()
+            logger.info(f"Đã lưu geometry dialog {dialog_name}: {width}x{height}+{x}+{y}")
+        except Exception as e:
+            logger.error(f"Lỗi khi lưu geometry dialog {dialog_name}: {e}")
 
     def get_main_window_geometry(self) -> Tuple[int, int, Optional[int], Optional[int]]:
         try:
