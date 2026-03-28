@@ -31,15 +31,19 @@ class PDFImportDialog:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("📄 Import PO từ PDF")
 
-        width, height = self.dialog_config.get_dialog_size('pdf_import')
-        self.dialog.geometry(f"{width}x{height}")
+        width, height, x, y = self.dialog_config.get_dialog_geometry('pdf_import')
+        if x is not None and y is not None:
+            self.dialog.geometry(f"{width}x{height}+{x}+{y}")
+        else:
+            self.dialog.geometry(f"{width}x{height}")
         self.dialog.resizable(True, True)
         self.dialog.transient(parent)
         self.dialog.grab_set()
         self.dialog.protocol("WM_DELETE_WINDOW", self._on_closing)
 
         self._create_widgets()
-        self._center_window()
+        if x is None or y is None:
+            self._center_window()
 
     def _center_window(self) -> None:
         self.dialog.update_idletasks()
@@ -88,20 +92,20 @@ class PDFImportDialog:
         size_frame = ttk.LabelFrame(parent, text="📋 Chi tiết Size — Quantity", padding=8)
         size_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
-        canvas = tk.Canvas(size_frame, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(size_frame, orient=tk.VERTICAL, command=canvas.yview)
-        scrollable = ttk.Frame(canvas)
+        self.canvas = tk.Canvas(size_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(size_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        scrollable = ttk.Frame(self.canvas)
 
-        scrollable.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable, anchor=tk.NW)
-        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollable.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.create_window((0, 0), window=scrollable, anchor=tk.NW)
+        self.canvas.configure(yscrollcommand=scrollbar.set)
 
         header = ttk.Frame(scrollable)
         header.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(header, text="☑", width=3, font=("", 9, "bold")).pack(side=tk.LEFT)
-        ttk.Label(header, text="Size", width=10, font=("", 9, "bold")).pack(side=tk.LEFT)
-        ttk.Label(header, text="Qty", width=8, font=("", 9, "bold"), anchor=tk.E).pack(side=tk.LEFT)
-        ttk.Label(header, text="Trạng thái", width=16, font=("", 9, "bold")).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Label(header, text="☑", width=3, font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+        ttk.Label(header, text="Size", width=10, font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+        ttk.Label(header, text="Qty", width=8, font=('Arial', 9, 'bold'), anchor=tk.E).pack(side=tk.LEFT)
+        ttk.Label(header, text="Trạng thái", width=16, font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=(10, 0))
 
         for size, qty in self.pdf_data.size_quantities.items():
             is_match = size in self.available_sizes
@@ -129,8 +133,11 @@ class PDFImportDialog:
             status_label.pack(side=tk.LEFT, padx=(10, 0))
             self.status_labels[size] = status_label
 
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.bind('<MouseWheel>', self._on_canvas_mousewheel)
+        self.canvas.bind('<Button-4>', lambda e: self._on_canvas_mousewheel_linux(e, 1))
+        self.canvas.bind('<Button-5>', lambda e: self._on_canvas_mousewheel_linux(e, -1))
 
     def _create_warning_section(self, parent: ttk.Frame) -> None:
         pdf_only = [s for s in self.pdf_data.size_quantities if s not in self.available_sizes]
@@ -177,6 +184,21 @@ class PDFImportDialog:
     def _on_check_changed(self, size: str) -> None:
         pass
 
+    def _on_canvas_mousewheel(self, event) -> None:
+        try:
+            if event.delta > 0:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.delta < 0:
+                self.canvas.yview_scroll(1, "units")
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý canvas mouse wheel: {e}")
+
+    def _on_canvas_mousewheel_linux(self, event, direction: int) -> None:
+        try:
+            self.canvas.yview_scroll(-direction, "units")
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý canvas mouse wheel Linux: {e}")
+
     def _on_confirm(self) -> None:
         po = self.po_var.get().strip()
         color = self.color_var.get().strip()
@@ -220,9 +242,11 @@ class PDFImportDialog:
         try:
             width = self.dialog.winfo_width()
             height = self.dialog.winfo_height()
-            self.dialog_config.save_dialog_size('pdf_import', width, height)
+            x = self.dialog.winfo_x()
+            y = self.dialog.winfo_y()
+            self.dialog_config.save_dialog_geometry('pdf_import', width, height, x, y)
         except Exception as e:
-            logger.error(f"Lỗi khi lưu kích thước dialog: {e}")
+            logger.error(f"Lỗi khi lưu geometry dialog: {e}")
         self.dialog.destroy()
 
 
