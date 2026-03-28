@@ -1,0 +1,120 @@
+<h2>Preview Dialog — "Import PO từ PDF"</h2>
+<p class="subtitle">Chọn layout cho dialog xem trước dữ liệu trích xuất từ PDF trước khi ghi vào Excel</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>A) Layout đơn giản — Tất cả trên 1 màn hình</h3>
+    </div>
+    <div class="card-image">
+      <div style="background:#f8f9fa;border:2px solid #dee2e6;border-radius:8px;padding:16px;font-family:sans-serif;font-size:13px;max-width:480px;margin:auto">
+        <div style="text-align:center;font-weight:bold;font-size:16px;margin-bottom:12px;color:#333">📄 Import PO từ PDF</div>
+        <div style="text-align:center;color:#666;font-size:12px;margin-bottom:16px">File: Test.pdf</div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <div style="flex:1;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:11px;color:#666;margin-bottom:4px">PO Number</div>
+            <div style="font-size:18px;font-weight:bold;color:#2e7d32">9013330</div>
+          </div>
+          <div style="flex:1;background:#e3f2fd;border:1px solid #90caf9;border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Color Code</div>
+            <div style="font-size:18px;font-weight:bold;color:#1565c0">3104</div>
+          </div>
+          <div style="flex:1;background:#fff3e0;border:1px solid #ffcc80;border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Total Qty</div>
+            <div style="font-size:18px;font-weight:bold;color:#e65100">1,030</div>
+          </div>
+        </div>
+
+        <div style="font-weight:bold;margin-bottom:8px;font-size:13px">📋 Chi tiết Size — Quantity:</div>
+        <div style="background:white;border:1px solid #ddd;border-radius:4px;max-height:180px;overflow-y:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr style="background:#f5f5f5;position:sticky;top:0">
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">Size</th>
+              <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Qty</th>
+              <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #ddd">Trạng thái</th>
+            </tr>
+            <tr><td style="padding:4px 8px">46</td><td style="padding:4px 8px;text-align:right">60</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:4px 8px">48</td><td style="padding:4px 8px;text-align:right">140</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr><td style="padding:4px 8px">50</td><td style="padding:4px 8px;text-align:right">200</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:4px 8px">52</td><td style="padding:4px 8px;text-align:right">200</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr><td style="padding:4px 8px;color:#c62828;font-weight:bold">96</td><td style="padding:4px 8px;text-align:right;color:#c62828">20</td><td style="padding:4px 8px;text-align:center;color:#c62828">⚠️ Chỉ có trong PDF</td></tr>
+          </table>
+        </div>
+
+        <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:4px;padding:8px;margin-top:12px;font-size:11px">
+          ⚠️ <b>2 size chỉ có trong PDF</b> (không có trong Excel): 96, 100<br>
+          ℹ️ <b>3 size chỉ có trong Excel</b> (không có trong PDF): 038, 040, 042
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+          <button class="mock-button" style="background:#e0e0e0">Hủy</button>
+          <button class="mock-button" style="background:#4CAF50;color:white;border-color:#388E3C;font-weight:bold">✅ Xác nhận & Ghi vào Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>B) Layout có chỉnh sửa — Cho phép sửa PO/Color trước khi ghi</h3>
+    </div>
+    <div class="card-image">
+      <div style="background:#f8f9fa;border:2px solid #dee2e6;border-radius:8px;padding:16px;font-family:sans-serif;font-size:13px;max-width:480px;margin:auto">
+        <div style="text-align:center;font-weight:bold;font-size:16px;margin-bottom:12px;color:#333">📄 Import PO từ PDF</div>
+        <div style="text-align:center;color:#666;font-size:12px;margin-bottom:16px">File: Test.pdf</div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <div style="flex:1">
+            <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">PO Number</label>
+            <input class="mock-input" value="9013330" style="width:100%;font-size:15px;font-weight:bold;text-align:center;box-sizing:border-box">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Color Code</label>
+            <input class="mock-input" value="3104" style="width:100%;font-size:15px;font-weight:bold;text-align:center;box-sizing:border-box">
+          </div>
+          <div style="flex:1;background:#fff3e0;border:1px solid #ffcc80;border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Total Qty</div>
+            <div style="font-size:18px;font-weight:bold;color:#e65100">1,030</div>
+          </div>
+        </div>
+
+        <div style="font-weight:bold;margin-bottom:8px;font-size:13px">📋 Chi tiết Size — Quantity:</div>
+        <div style="background:white;border:1px solid #ddd;border-radius:4px;max-height:180px;overflow-y:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr style="background:#f5f5f5;position:sticky;top:0">
+              <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #ddd">☑</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">Size</th>
+              <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Qty</th>
+              <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #ddd">Trạng thái</th>
+            </tr>
+            <tr><td style="padding:4px 8px;text-align:center">☑</td><td style="padding:4px 8px">46</td><td style="padding:4px 8px;text-align:right">60</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:4px 8px;text-align:center">☑</td><td style="padding:4px 8px">48</td><td style="padding:4px 8px;text-align:right">140</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr><td style="padding:4px 8px;text-align:center">☑</td><td style="padding:4px 8px">50</td><td style="padding:4px 8px;text-align:right">200</td><td style="padding:4px 8px;text-align:center;color:#2e7d32">✅ Khớp</td></tr>
+            <tr style="background:#fff3e0"><td style="padding:4px 8px;text-align:center;color:#999">☐</td><td style="padding:4px 8px;color:#c62828">96</td><td style="padding:4px 8px;text-align:right;color:#c62828">20</td><td style="padding:4px 8px;text-align:center;color:#c62828">⚠️ Chỉ PDF</td></tr>
+          </table>
+        </div>
+
+        <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:4px;padding:8px;margin-top:12px;font-size:11px">
+          ⚠️ <b>2 size chỉ có trong PDF</b> — sẽ bị bỏ qua (unchecked)<br>
+          ℹ️ <b>3 size chỉ có trong Excel</b>: 038, 040, 042
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+          <button class="mock-button" style="background:#e0e0e0">Hủy</button>
+          <button class="mock-button" style="background:#4CAF50;color:white;border-color:#388E3C;font-weight:bold">✅ Xác nhận & Ghi vào Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px;padding:16px;background:#f0f4f8;border-radius:8px">
+  <h3 style="margin-top:0">So sánh:</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    <tr style="border-bottom:1px solid #ddd"><td style="padding:8px;font-weight:bold">Tính năng</td><td style="padding:8px;text-align:center">A) Đơn giản</td><td style="padding:8px;text-align:center">B) Có chỉnh sửa</td></tr>
+    <tr style="border-bottom:1px solid #ddd"><td style="padding:8px">PO / Color</td><td style="padding:8px;text-align:center">Chỉ xem</td><td style="padding:8px;text-align:center">Có thể sửa</td></tr>
+    <tr style="border-bottom:1px solid #ddd"><td style="padding:8px">Size</td><td style="padding:8px;text-align:center">Import tất cả size khớp</td><td style="padding:8px;text-align:center">Tick chọn size nào muốn import</td></tr>
+    <tr><td style="padding:8px">Phù hợp khi</td><td style="padding:8px;text-align:center">PDF luôn chính xác</td><td style="padding:8px;text-align:center">Cần linh hoạt sửa trước khi ghi</td></tr>
+  </table>
+</div>
