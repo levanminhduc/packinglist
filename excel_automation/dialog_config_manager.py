@@ -36,6 +36,10 @@ class DialogConfigManager:
             "size_quantity_input": {
                 "width": 550,
                 "height": 750
+            },
+            "pdf_reader": {
+                "width": 700,
+                "height": 500
             }
         }
     }
