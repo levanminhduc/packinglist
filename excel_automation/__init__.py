@@ -28,6 +28,12 @@ from excel_automation.size_filter import SizeFilterManager
 from excel_automation.size_filter_config import SizeFilterConfig
 from excel_automation.excel_com_manager import ExcelCOMManager
 from excel_automation.utils import get_size_sort_key
+from excel_automation.pdf_reader import (
+    extract_text_from_pdf,
+    check_ocr_available,
+    is_scanned_page,
+    extract_page_text,
+)
 from excel_automation.carton_allocation_calculator import (
     CartonAllocationCalculator,
     SizeAllocation,
@@ -61,5 +67,9 @@ __all__ = [
     "SizeAllocation",
     "CombinedCarton",
     "AllocationResult",
+    "extract_text_from_pdf",
+    "check_ocr_available",
+    "is_scanned_page",
+    "extract_page_text",
 ]
 
