@@ -12,7 +12,7 @@ import threading
 import logging
 from typing import Optional
 
-from excel_automation.pdf_reader import extract_text_from_pdf, check_ocr_available
+from excel_automation.pdf_reader import extract_text_from_pdf
 from excel_automation.dialog_config_manager import DialogConfigManager
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ class PdfReaderDialog:
         self.dialog_config = DialogConfigManager()
         self._processing = False
         self._worker_thread: Optional[threading.Thread] = None
+        self._destroyed = False
 
         # Tạo dialog window
         self.dialog = tk.Toplevel(parent)
@@ -165,18 +166,23 @@ class PdfReaderDialog:
                     status += " (OCR)..."
                 else:
                     status += "..."
-                self.dialog.after(0, self._update_status, status)
+                if not self._destroyed:
+                    self.dialog.after(0, self._update_status, status)
 
             result_text = extract_text_from_pdf(file_path, on_progress=on_progress)
-            self.dialog.after(0, self._on_extraction_done, result_text)
+            if not self._destroyed:
+                self.dialog.after(0, self._on_extraction_done, result_text)
 
         except FileNotFoundError as e:
-            self.dialog.after(0, self._on_extraction_error, f"File không tồn tại: {e}")
+            if not self._destroyed:
+                self.dialog.after(0, self._on_extraction_error, f"File không tồn tại: {e}")
         except ValueError as e:
-            self.dialog.after(0, self._on_extraction_error, f"File không hợp lệ: {e}")
+            if not self._destroyed:
+                self.dialog.after(0, self._on_extraction_error, f"File không hợp lệ: {e}")
         except Exception as e:
             logger.error(f"Lỗi extract PDF: {e}")
-            self.dialog.after(0, self._on_extraction_error, f"Lỗi: {e}")
+            if not self._destroyed:
+                self.dialog.after(0, self._on_extraction_error, f"Lỗi: {e}")
 
     def _update_status(self, text: str) -> None:
         """Cập nhật status label (gọi từ UI thread)."""
@@ -218,6 +224,9 @@ class PdfReaderDialog:
 
     def _on_closing(self) -> None:
         """Xử lý đóng dialog — lưu kích thước, destroy."""
+        if not self.dialog.winfo_exists():
+            return
+        self._destroyed = True
         try:
             width = self.dialog.winfo_width()
             height = self.dialog.winfo_height()
