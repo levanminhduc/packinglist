@@ -1368,19 +1368,30 @@ class ExcelRealtimeController:
                         if size in self.checkboxes
                     ]
                     display_manager = SizeQuantityDisplayManager(self.config)
-                    current_quantities = display_manager.get_current_quantities(
-                        self.com_manager.worksheet,
-                        selected_sizes,
-                        self.config.get_column()
-                    )
-                    written_count = display_manager.write_quantities_to_excel(
-                        self.com_manager.excel_app,
-                        self.com_manager.worksheet,
-                        selected_sizes,
-                        size_quantities,
-                        current_quantities,
-                        self.config.get_column()
-                    )
+
+                    if self.allocation_result and self.items_per_box:
+                        written_count, _ = display_manager.write_allocated_quantities_to_excel(
+                            self.com_manager.excel_app,
+                            self.com_manager.worksheet,
+                            self.allocation_result,
+                            selected_sizes,
+                            self.config.get_column()
+                        )
+                    else:
+                        current_quantities = display_manager.get_current_quantities(
+                            self.com_manager.worksheet,
+                            selected_sizes,
+                            self.config.get_column()
+                        )
+                        written_count = display_manager.write_quantities_to_excel(
+                            self.com_manager.excel_app,
+                            self.com_manager.worksheet,
+                            selected_sizes,
+                            size_quantities,
+                            current_quantities,
+                            self.config.get_column()
+                        )
+
                     if self._auto_save_timer_id is not None:
                         self.root.after_cancel(self._auto_save_timer_id)
                         self._auto_save_timer_id = None
