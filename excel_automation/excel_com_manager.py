@@ -150,18 +150,27 @@ class ExcelCOMManager:
         end_row = end_row or self.detect_end_row()
 
         try:
-            sizes: Set[str] = set()
             col_num = self._column_letter_to_number(column)
+            range_str = f"{column}{start_row}:{column}{end_row}"
+            raw_values = self.worksheet.Range(range_str).Value
 
-            for row in range(start_row, end_row + 1):
-                cell_value = self.worksheet.Cells(row, col_num).Value
+            if raw_values is None:
+                return []
+
+            if not isinstance(raw_values, tuple):
+                raw_values = ((raw_values,),)
+
+            sizes: Set[str] = set()
+
+            for row_offset, row_tuple in enumerate(raw_values):
+                cell_value = row_tuple[0] if isinstance(row_tuple, tuple) else row_tuple
 
                 if cell_value is not None:
                     size_str = normalize_size_value(cell_value)
 
                     if size_str:
-                        # Nếu giá trị gốc là số lẻ → ghi giá trị đã làm tròn lại vào Excel
-                        self._fix_decimal_cell(row, col_num, cell_value, size_str)
+                        actual_row = start_row + row_offset
+                        self._fix_decimal_cell(actual_row, col_num, cell_value, size_str)
                         sizes.add(size_str)
 
             sorted_sizes = sorted(sizes, key=get_size_sort_key)

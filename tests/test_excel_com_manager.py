@@ -106,5 +106,74 @@ class TestShowAllRowsBulk(unittest.TestCase):
             self.manager.show_all_rows(start_row=19, end_row=59)
 
 
+class TestScanSizesBulk(unittest.TestCase):
+
+    def setUp(self):
+        with patch.object(ExcelCOMManager, '__init__', lambda self, *a, **kw: None):
+            self.manager = ExcelCOMManager()
+            self.manager.config = MagicMock()
+            self.manager.config.get_column.return_value = "F"
+            self.manager.config.get_start_row.return_value = 19
+            self.manager.worksheet = MagicMock()
+
+        self.manager._column_letter_to_number = ExcelCOMManager._column_letter_to_number.__get__(self.manager)
+
+    def test_reads_range_in_single_call(self):
+        self.manager.worksheet.Range.return_value.Value = (
+            ("044",), ("045",), ("046",), (None,), ("044",)
+        )
+
+        with patch.object(self.manager, 'detect_end_row', return_value=23):
+            result = self.manager.scan_sizes(column="F", start_row=19, end_row=23)
+
+        self.manager.worksheet.Range.assert_called_once_with("F19:F23")
+
+    def test_returns_unique_sorted_sizes(self):
+        self.manager.worksheet.Range.return_value.Value = (
+            ("046",), ("044",), ("045",), ("044",), ("046",)
+        )
+
+        with patch.object(self.manager, 'detect_end_row', return_value=23):
+            result = self.manager.scan_sizes(column="F", start_row=19, end_row=23)
+
+        self.assertEqual(result, ["044", "045", "046"])
+
+    def test_handles_float_values(self):
+        self.manager.worksheet.Range.return_value.Value = (
+            (44.0,), (45.0,), (46.0,)
+        )
+
+        with patch.object(self.manager, 'detect_end_row', return_value=21):
+            with patch.object(self.manager, '_fix_decimal_cell'):
+                result = self.manager.scan_sizes(column="F", start_row=19, end_row=21)
+
+        self.assertIn("044", result)
+        self.assertIn("045", result)
+        self.assertIn("046", result)
+
+    def test_skips_none_values(self):
+        self.manager.worksheet.Range.return_value.Value = (
+            (None,), ("044",), (None,)
+        )
+
+        with patch.object(self.manager, 'detect_end_row', return_value=21):
+            result = self.manager.scan_sizes(column="F", start_row=19, end_row=21)
+
+        self.assertEqual(result, ["044"])
+
+    def test_single_cell_returns_non_tuple(self):
+        self.manager.worksheet.Range.return_value.Value = "044"
+
+        with patch.object(self.manager, 'detect_end_row', return_value=19):
+            result = self.manager.scan_sizes(column="F", start_row=19, end_row=19)
+
+        self.assertEqual(result, ["044"])
+
+    def test_raises_if_no_worksheet(self):
+        self.manager.worksheet = None
+        with self.assertRaises(RuntimeError):
+            self.manager.scan_sizes()
+
+
 if __name__ == "__main__":
     unittest.main()
