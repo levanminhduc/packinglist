@@ -22,6 +22,8 @@ from excel_automation.color_code_update_manager import ColorCodeUpdateManager
 from ui.size_quantity_input_dialog import SizeQuantityInputDialog
 from excel_automation.pdf_po_parser import PDFPOParser
 from ui.ui_config import UIConfig
+from ui.sheet_rename_dialog import SheetRenameDialog
+from ui.copy_sheet_progress_dialog import CopySheetProgressDialog
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,13 @@ class ExcelRealtimeController:
             text="🔄 Reload",
             command=self._reload_sheets,
             width=12
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(
+            sheet_frame,
+            text="📋 Copy Sheet",
+            command=self._copy_sheet,
+            width=14
         ).pack(side=tk.LEFT, padx=(0, 10))
 
         self.sheet_status_label = ttk.Label(sheet_frame, text="", foreground="gray")
@@ -414,6 +423,96 @@ class ExcelRealtimeController:
             logger.error(f"Lỗi khi reload sheets: {e}")
             messagebox.showerror("Lỗi", f"Không thể tải lại sheets:\n{str(e)}")
             self.status_label.config(text="Lỗi khi tải lại sheets")
+
+    def _copy_sheet(self) -> None:
+        if not self.com_manager:
+            messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
+            return
+
+        progress = CopySheetProgressDialog(self.root)
+
+        try:
+            progress.start_step(0)
+            new_sheet_name = self.com_manager.copy_sheet()
+            progress.complete_step(0)
+        except Exception as e:
+            logger.error(f"Lỗi khi copy sheet: {e}")
+            progress.show_error(0, str(e), lambda: self._copy_sheet_retry(progress, None))
+            return
+
+        progress.dialog.withdraw()
+
+        dialog = SheetRenameDialog(
+            self.root,
+            new_sheet_name,
+            self.com_manager.get_sheet_names()
+        )
+        user_name = dialog.show()
+
+        if user_name is None:
+            self.status_label.config(text="Đã hủy đổi tên sheet")
+            self._reload_sheets()
+            progress.close()
+            return
+
+        if user_name != new_sheet_name:
+            try:
+                self.com_manager.rename_sheet(new_sheet_name, user_name)
+                new_sheet_name = user_name
+            except ValueError as ve:
+                messagebox.showwarning("Cảnh báo", str(ve), parent=self.root)
+
+        progress.dialog.deiconify()
+        progress.dialog.grab_set()
+
+        self._copy_sheet_continue(progress, new_sheet_name)
+
+    def _copy_sheet_continue(self, progress: 'CopySheetProgressDialog', new_sheet_name: str) -> None:
+        try:
+            self.com_manager.switch_sheet(new_sheet_name)
+            self.current_sheet = new_sheet_name
+
+            progress.start_step(1)
+            cleared = self.com_manager.clear_quantity_columns()
+            progress.complete_step(1)
+
+            progress.start_step(2)
+            self._scan_sizes()
+            self._deselect_all_sizes()
+            progress.complete_step(2)
+
+            progress.start_step(3)
+            self.com_manager.show_all_rows()
+            self.sheet_names = self.com_manager.get_sheet_names()
+            self.sheet_combobox['values'] = self.sheet_names
+            self.sheet_combobox.set(new_sheet_name)
+            self.sheet_status_label.config(
+                text=f"({len(self.sheet_names)} sheets)",
+                foreground="blue"
+            )
+            self._update_po_color_display()
+            self._highlight_update_buttons()
+            self._start_auto_refresh_sizes()
+            progress.complete_step(3)
+
+            progress.finish()
+
+            self.status_label.config(
+                text=f"Đã copy → '{new_sheet_name}' | Xóa {cleared} ô số lượng"
+            )
+            logger.info(f"Đã copy sheet thành công: '{new_sheet_name}', xóa {cleared} ô")
+
+        except Exception as e:
+            step = progress.current_step
+            logger.error(f"Lỗi khi copy sheet tại bước {step}: {e}")
+            progress.show_error(
+                step, str(e),
+                lambda: self._copy_sheet_continue(progress, new_sheet_name)
+            )
+
+    def _copy_sheet_retry(self, progress: 'CopySheetProgressDialog', _) -> None:
+        progress.close()
+        self._copy_sheet()
 
     def _rearrange_buttons(self, event: Optional[tk.Event] = None) -> None:
         if not self.action_frame or not self.action_buttons:
