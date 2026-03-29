@@ -103,7 +103,11 @@ class PDFImportDialog:
                 foreground="gray"
             ).pack(fill=tk.X, pady=(4, 0))
         else:
-            ttk.Label(total_row, text="  ✅ Đã check từ PDF", font=("Arial", 9, "bold"), foreground="#2e7d32").pack(side=tk.LEFT, padx=(8, 0))
+            ttk.Label(
+                info_frame,
+                text="✅ Khớp với Ordertotal PDF",
+                foreground="#2e7d32"
+            ).pack(fill=tk.X, pady=(4, 0))
 
         self._create_size_table(main_frame)
         self._create_warning_section(main_frame)
