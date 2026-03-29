@@ -103,11 +103,7 @@ class PDFImportDialog:
                 foreground="gray"
             ).pack(fill=tk.X, pady=(4, 0))
         else:
-            ttk.Label(
-                info_frame,
-                text="✅ Khớp với Ordertotal PDF",
-                foreground="#2e7d32"
-            ).pack(fill=tk.X, pady=(4, 0))
+            ttk.Label(total_row, text="  ✅ Đã check từ PDF", font=("Arial", 9, "bold"), foreground="#2e7d32").pack(side=tk.LEFT, padx=(8, 0))
 
         self._create_size_table(main_frame)
         self._create_warning_section(main_frame)
@@ -284,10 +280,12 @@ class ImportProgressDialog:
         "Ghi PO vào Excel",
         "Ghi Color Code vào Excel",
         "Cập nhật Sizes & Quantities",
+        "Ghi Sizes & Quantities vào Excel",
+        "Ẩn dòng không chọn",
         "Hoàn tất",
     ]
 
-    STEP_WEIGHTS = [20, 15, 15, 15, 15, 15, 5]
+    STEP_WEIGHTS = [15, 10, 10, 12, 12, 10, 13, 13, 5]
 
     def __init__(self, parent: tk.Tk):
         self.parent = parent
@@ -297,7 +295,7 @@ class ImportProgressDialog:
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("📄 Đang Import PO từ PDF")
-        self.dialog.geometry("420x380")
+        self.dialog.geometry("420x430")
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
