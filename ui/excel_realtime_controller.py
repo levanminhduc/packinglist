@@ -1557,11 +1557,21 @@ class ExcelRealtimeController:
         manager = BoxListExportManager(config)
         items_per_box = self._extract_items_per_box()
 
+        def restore_screen_updating():
+            try:
+                self.com_manager.excel_app.ScreenUpdating = True
+            except Exception:
+                pass
+
         progress = BoxListExportProgressDialog(self.root)
 
         box_ranges_dict = None
         result = None
         new_sheet = None
+
+        def on_close_without_retry():
+            restore_screen_updating()
+            progress.close()
 
         def run_export_steps(start_from: int = 0):
             nonlocal box_ranges_dict, result, new_sheet
@@ -1586,7 +1596,7 @@ class ExcelRealtimeController:
                     )
 
                     if not result.success:
-                        self.com_manager.excel_app.ScreenUpdating = True
+                        restore_screen_updating()
                         progress.close()
                         messagebox.showerror(
                             "Lỗi",
@@ -1607,7 +1617,7 @@ class ExcelRealtimeController:
 
                 if start_from <= 3:
                     progress.start_step(3)
-                    manager.paste_and_format_to_excel(
+                    paste_success = manager.paste_and_format_to_excel(
                         self.com_manager.workbook,
                         self.com_manager.worksheet,
                         result.box_ranges,
@@ -1616,6 +1626,8 @@ class ExcelRealtimeController:
                         1,
                         items_per_box
                     )
+                    if not paste_success:
+                        raise RuntimeError("Không thể ghi dữ liệu vào sheet mới")
                     progress.complete_step(3)
 
                 if start_from <= 4:
@@ -1623,7 +1635,7 @@ class ExcelRealtimeController:
                     manager.copy_to_clipboard(result.text)
                     progress.complete_step(4)
 
-                self.com_manager.excel_app.ScreenUpdating = True
+                restore_screen_updating()
 
                 progress.start_step(5)
                 progress.complete_step(5)
@@ -1641,10 +1653,22 @@ class ExcelRealtimeController:
                 ))
 
             except Exception as e:
-                self.com_manager.excel_app.ScreenUpdating = True
+                restore_screen_updating()
                 step = progress.current_step
+                retry_from = step
+                if step == 3 and new_sheet is not None:
+                    retry_from = 2
+                    try:
+                        new_sheet.Delete()
+                        new_sheet = None
+                    except Exception:
+                        pass
                 logger.error(f"Lỗi khi xuất danh sách thùng tại bước {step}: {e}", exc_info=True)
-                progress.show_error(step, str(e), lambda: run_export_steps(step))
+                progress.show_error(
+                    step, str(e),
+                    lambda: run_export_steps(retry_from),
+                    on_close_without_retry
+                )
 
         run_export_steps()
 

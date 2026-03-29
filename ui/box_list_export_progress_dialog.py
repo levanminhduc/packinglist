@@ -104,7 +104,7 @@ class BoxListExportProgressDialog:
         self.dialog.update()
         self.parent.after(1000, self.dialog.destroy)
 
-    def show_error(self, step_index: int, error_msg: str, retry_callback: Callable) -> None:
+    def show_error(self, step_index: int, error_msg: str, retry_callback: Callable, close_callback: Optional[Callable] = None) -> None:
         self.step_labels[step_index].configure(
             text=f"  \u274c  {self.STEPS[step_index]}", foreground="#c62828"
         )
@@ -112,6 +112,12 @@ class BoxListExportProgressDialog:
         self.error_label.pack(pady=(10, 0))
 
         self.retry_callback = retry_callback
+
+        def on_close():
+            if close_callback:
+                close_callback()
+            else:
+                self.dialog.destroy()
 
         for widget in self.btn_frame.winfo_children():
             widget.destroy()
@@ -122,10 +128,10 @@ class BoxListExportProgressDialog:
         ).pack(side=tk.LEFT)
         ttk.Button(
             self.btn_frame, text="Đóng",
-            command=self.dialog.destroy, width=15
+            command=on_close, width=15
         ).pack(side=tk.RIGHT)
 
-        self.dialog.protocol("WM_DELETE_WINDOW", self.dialog.destroy)
+        self.dialog.protocol("WM_DELETE_WINDOW", on_close)
         self.dialog.update()
 
     def close(self) -> None:

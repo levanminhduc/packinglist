@@ -77,11 +77,17 @@ class TestBoxListExportProgressDialog(unittest.TestCase):
     def test_show_error_allows_close(self):
         callback = MagicMock()
         self.dialog.show_error(1, "test error", callback)
-        self.mock_dialog.protocol.assert_called_with("WM_DELETE_WINDOW", self.mock_dialog.destroy)
+        self.mock_dialog.protocol.assert_called_with("WM_DELETE_WINDOW", ANY)
 
     def test_close_destroys_dialog(self):
         self.dialog.close()
         self.mock_dialog.destroy.assert_called_once()
+
+    def test_show_error_with_close_callback(self):
+        retry_cb = MagicMock()
+        close_cb = MagicMock()
+        self.dialog.show_error(1, "test error", retry_cb, close_cb)
+        self.mock_dialog.protocol.assert_called_with("WM_DELETE_WINDOW", ANY)
 
     def test_retry_invokes_callback(self):
         callback = MagicMock()
