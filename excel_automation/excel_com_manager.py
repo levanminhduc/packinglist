@@ -319,6 +319,35 @@ class ExcelCOMManager:
             logger.error(f"Lỗi khi đổi tên sheet: {e}")
             raise RuntimeError(f"Không thể đổi tên sheet: {str(e)}")
 
+    def _detect_tot_qty_column(self) -> Optional[int]:
+        if self.worksheet is None:
+            return None
+
+        try:
+            for row in range(14, 19):
+                range_str = f"A{row}:AZ{row}"
+                row_values = self.worksheet.Range(range_str).Value
+
+                if row_values is None:
+                    continue
+
+                cells = row_values[0] if isinstance(row_values[0], tuple) else row_values
+
+                for col_idx, cell_value in enumerate(cells):
+                    if cell_value is not None and isinstance(cell_value, str):
+                        cell_lower = cell_value.strip().lower()
+                        if "tot qty" in cell_lower or "total qty" in cell_lower:
+                            col_number = col_idx + 1
+                            logger.info(f"Tìm thấy Tot QTY tại row {row}, col {col_number}")
+                            return col_number
+
+            logger.warning("Không tìm thấy cột Tot QTY trong row 14-18")
+            return None
+
+        except Exception as e:
+            logger.warning(f"Lỗi khi detect cột Tot QTY: {e}")
+            return None
+
     def clear_quantity_columns(self, start_row: Optional[int] = None,
                                end_row: Optional[int] = None,
                                start_col: int = 7,

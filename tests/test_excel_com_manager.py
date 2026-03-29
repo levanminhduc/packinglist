@@ -175,5 +175,54 @@ class TestScanSizesBulk(unittest.TestCase):
             self.manager.scan_sizes()
 
 
+class TestDetectTotQtyColumn(unittest.TestCase):
+
+    def setUp(self):
+        with patch.object(ExcelCOMManager, '__init__', lambda self, *a, **kw: None):
+            self.manager = ExcelCOMManager()
+            self.manager.worksheet = MagicMock()
+
+    def _make_row_values(self, col_count: int, tot_qty_col: int = None, text: str = "Tot QTY"):
+        row = [None] * col_count
+        if tot_qty_col is not None:
+            row[tot_qty_col - 1] = text
+        return tuple(row)
+
+    def test_finds_tot_qty_at_column_14(self):
+        row_data = self._make_row_values(52, tot_qty_col=14)
+        self.manager.worksheet.Range.return_value.Value = (row_data,)
+        result = self.manager._detect_tot_qty_column()
+        self.assertEqual(result, 14)
+
+    def test_finds_tot_qty_at_column_40(self):
+        row_data = self._make_row_values(52, tot_qty_col=40)
+        self.manager.worksheet.Range.return_value.Value = (row_data,)
+        result = self.manager._detect_tot_qty_column()
+        self.assertEqual(result, 40)
+
+    def test_finds_total_qty_variant(self):
+        row_data = self._make_row_values(52, tot_qty_col=20, text="Total QTY")
+        self.manager.worksheet.Range.return_value.Value = (row_data,)
+        result = self.manager._detect_tot_qty_column()
+        self.assertEqual(result, 20)
+
+    def test_case_insensitive(self):
+        row_data = self._make_row_values(52, tot_qty_col=14, text="tot qty")
+        self.manager.worksheet.Range.return_value.Value = (row_data,)
+        result = self.manager._detect_tot_qty_column()
+        self.assertEqual(result, 14)
+
+    def test_returns_none_when_not_found(self):
+        row_data = self._make_row_values(52)
+        self.manager.worksheet.Range.return_value.Value = (row_data,)
+        result = self.manager._detect_tot_qty_column()
+        self.assertIsNone(result)
+
+    def test_returns_none_when_no_worksheet(self):
+        self.manager.worksheet = None
+        result = self.manager._detect_tot_qty_column()
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
