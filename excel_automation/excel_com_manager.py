@@ -351,12 +351,16 @@ class ExcelCOMManager:
     def clear_quantity_columns(self, start_row: Optional[int] = None,
                                end_row: Optional[int] = None,
                                start_col: int = 7,
-                               end_col: int = 39) -> int:
+                               end_col: Optional[int] = None) -> int:
         if self.worksheet is None:
             raise RuntimeError("Chưa chọn worksheet nào")
 
         start_row = start_row or self.config.get_start_row()
         end_row = end_row or self.detect_end_row()
+
+        if end_col is None:
+            detected = self._detect_tot_qty_column()
+            end_col = (detected - 1) if detected else 39
 
         try:
             if self.excel_app:

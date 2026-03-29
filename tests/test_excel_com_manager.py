@@ -77,6 +77,26 @@ class TestClearQuantityColumnsBulk(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.manager.clear_quantity_columns()
 
+    def test_uses_detected_tot_qty_column_as_end(self):
+        with patch.object(self.manager, '_detect_tot_qty_column', return_value=14):
+            self.manager.clear_quantity_columns(start_row=19, end_row=59)
+
+        self.manager.worksheet.Range.assert_called_once_with("G19:M59")
+        self.manager.worksheet.Range.return_value.ClearContents.assert_called_once()
+
+    def test_fallback_to_39_when_tot_qty_not_found(self):
+        with patch.object(self.manager, '_detect_tot_qty_column', return_value=None):
+            self.manager.clear_quantity_columns(start_row=19, end_row=59)
+
+        self.manager.worksheet.Range.assert_called_once_with("G19:AM59")
+
+    def test_explicit_end_col_skips_detect(self):
+        with patch.object(self.manager, '_detect_tot_qty_column') as mock_detect:
+            self.manager.clear_quantity_columns(start_row=19, end_row=59, end_col=25)
+
+        mock_detect.assert_not_called()
+        self.manager.worksheet.Range.assert_called_once_with("G19:Y59")
+
 
 class TestShowAllRowsBulk(unittest.TestCase):
 
