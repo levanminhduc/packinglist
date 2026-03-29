@@ -320,23 +320,22 @@ class ExcelCOMManager:
         start_row = start_row or self.config.get_start_row()
         end_row = end_row or self.detect_end_row()
 
-        cleared_count = 0
-
         try:
             if self.excel_app:
                 self.excel_app.ScreenUpdating = False
 
-            for row in range(start_row, end_row + 1):
-                for col in range(start_col, end_col + 1):
-                    cell_value = self.worksheet.Cells(row, col).Value
-                    if cell_value is not None:
-                        self.worksheet.Cells(row, col).Value = None
-                        cleared_count += 1
+            start_col_letter = self._number_to_column_letter(start_col)
+            end_col_letter = self._number_to_column_letter(end_col)
+            range_str = f"{start_col_letter}{start_row}:{end_col_letter}{end_row}"
+
+            target_range = self.worksheet.Range(range_str)
+            cleared_count = int(self.excel_app.WorksheetFunction.CountA(target_range))
+            target_range.ClearContents()
 
             if self.excel_app:
                 self.excel_app.ScreenUpdating = True
 
-            logger.info(f"Đã xóa {cleared_count} ô số lượng (cột {start_col}-{end_col}, dòng {start_row}-{end_row})")
+            logger.info(f"Đã xóa {cleared_count} ô số lượng ({range_str})")
             return cleared_count
 
         except Exception as e:
