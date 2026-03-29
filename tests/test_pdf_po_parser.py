@@ -27,6 +27,8 @@ class TestPDFPOData:
         assert data.size_quantities == {}
         assert data.total_quantity == 0
         assert data.source_file == ""
+        assert data.ordertotal_from_pdf is None
+        assert data.quantity_mismatch is False
 
 
 class TestPOExtraction:
@@ -112,6 +114,67 @@ class TestSizeQuantityExtraction:
 from pathlib import Path as PDFPath
 
 
+class TestOrdertotalExtraction:
+
+    def test_extract_ordertotal_standard(self):
+        text = "Ordertotal 1030 20898.70 USD\n"
+        result = PDFPOParser._extract_ordertotal(text)
+        assert result == 1030
+
+    def test_extract_ordertotal_not_found(self):
+        text = "Some random text without ordertotal\n"
+        result = PDFPOParser._extract_ordertotal(text)
+        assert result is None
+
+    def test_extract_ordertotal_different_number(self):
+        text = "Ordertotal 500 10000.00 USD\n"
+        result = PDFPOParser._extract_ordertotal(text)
+        assert result == 500
+
+
+class TestQuantityMismatchDetection:
+
+    def test_no_mismatch_when_ordertotal_matches_sum(self):
+        data = PDFPOData(
+            raw_po="0009013330-1",
+            po_number="9013330",
+            color_code="3104",
+            size_quantities={"046": 60, "048": 140},
+            total_quantity=200,
+            source_file="Test.pdf",
+            ordertotal_from_pdf=200,
+            quantity_mismatch=False
+        )
+        assert data.quantity_mismatch is False
+
+    def test_mismatch_flag_true_when_differ(self):
+        data = PDFPOData(
+            raw_po="0009013330-1",
+            po_number="9013330",
+            color_code="3104",
+            size_quantities={"046": 60, "048": 140},
+            total_quantity=200,
+            source_file="Test.pdf",
+            ordertotal_from_pdf=250,
+            quantity_mismatch=True
+        )
+        assert data.quantity_mismatch is True
+
+    def test_no_mismatch_when_ordertotal_is_none(self):
+        data = PDFPOData(
+            raw_po="0009013330-1",
+            po_number="9013330",
+            color_code="3104",
+            size_quantities={"046": 60, "048": 140},
+            total_quantity=200,
+            source_file="Test.pdf",
+            ordertotal_from_pdf=None,
+            quantity_mismatch=False
+        )
+        assert data.ordertotal_from_pdf is None
+        assert data.quantity_mismatch is False
+
+
 class TestFullParse:
 
     def test_parse_test_pdf(self):
@@ -143,6 +206,8 @@ class TestFullParse:
         assert result.size_quantities["152"] == 20
         assert len(result.size_quantities) == 15
         assert result.source_file == str(pdf_path)
+        assert result.ordertotal_from_pdf == 1030
+        assert result.quantity_mismatch is False
 
     def test_parse_nonexistent_file(self):
         with pytest.raises(RuntimeError, match="Không thể đọc file PDF"):

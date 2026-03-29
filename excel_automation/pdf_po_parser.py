@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 import logging
 import re
 
@@ -17,6 +17,8 @@ class PDFPOData:
     size_quantities: Dict[str, int] = field(default_factory=dict)
     total_quantity: int = 0
     source_file: str = ""
+    ordertotal_from_pdf: Optional[int] = None
+    quantity_mismatch: bool = False
 
 
 class PDFPOParser:
@@ -83,6 +85,15 @@ class PDFPOParser:
         return size_quantities
 
     @staticmethod
+    def _extract_ordertotal(full_text: str) -> Optional[int]:
+        pattern = r'Ordertotal\s+(\d+)\s+'
+        match = re.search(pattern, full_text)
+        if not match:
+            logger.warning("Không tìm thấy dòng Ordertotal trong PDF")
+            return None
+        return int(match.group(1))
+
+    @staticmethod
     def parse(file_path: str) -> "PDFPOData":
         path = Path(file_path)
         if not path.exists():
@@ -107,6 +118,14 @@ class PDFPOParser:
         size_quantities = PDFPOParser._extract_size_quantities(full_text)
         total_quantity = sum(size_quantities.values())
 
+        ordertotal = PDFPOParser._extract_ordertotal(full_text)
+        mismatch = ordertotal is not None and total_quantity != ordertotal
+        if mismatch:
+            logger.warning(
+                f"Chênh lệch qty! Parse={total_quantity}, Ordertotal PDF={ordertotal}, "
+                f"thiếu={ordertotal - total_quantity}"
+            )
+
         logger.info(
             f"Parse PDF thành công: PO={po_number}, Color={color_code}, "
             f"{len(size_quantities)} sizes, total={total_quantity}"
@@ -118,5 +137,7 @@ class PDFPOParser:
             color_code=color_code,
             size_quantities=size_quantities,
             total_quantity=total_quantity,
-            source_file=str(path)
+            source_file=str(path),
+            ordertotal_from_pdf=ordertotal,
+            quantity_mismatch=mismatch
         )

@@ -84,6 +84,31 @@ class PDFImportDialog:
         ttk.Label(total_row, text="Total Qty:", width=12).pack(side=tk.LEFT)
         ttk.Label(total_row, text=f"{self.pdf_data.total_quantity:,}", font=("Consolas", 11, "bold"), foreground="#e65100").pack(side=tk.LEFT, padx=(5, 0))
 
+        if self.pdf_data.quantity_mismatch:
+            diff = self.pdf_data.ordertotal_from_pdf - self.pdf_data.total_quantity
+            mismatch_text = (
+                f"⚠️ Chênh lệch! Parse được {self.pdf_data.total_quantity:,} qty "
+                f"từ {len(self.pdf_data.size_quantities)} size, "
+                f"Ordertotal PDF = {self.pdf_data.ordertotal_from_pdf:,} "
+                f"(thiếu {diff:,} qty)"
+            )
+            ttk.Label(
+                info_frame, text=mismatch_text,
+                foreground="#c62828", wraplength=450
+            ).pack(fill=tk.X, pady=(4, 0))
+        elif self.pdf_data.ordertotal_from_pdf is None:
+            ttk.Label(
+                info_frame,
+                text="ℹ️ Không tìm thấy dòng Ordertotal trong PDF để kiểm tra chéo",
+                foreground="gray"
+            ).pack(fill=tk.X, pady=(4, 0))
+        else:
+            ttk.Label(
+                info_frame,
+                text="✅ Khớp với Ordertotal PDF",
+                foreground="#2e7d32"
+            ).pack(fill=tk.X, pady=(4, 0))
+
         self._create_size_table(main_frame)
         self._create_warning_section(main_frame)
         self._create_buttons(main_frame)
