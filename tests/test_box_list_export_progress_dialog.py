@@ -83,6 +83,12 @@ class TestBoxListExportProgressDialog(unittest.TestCase):
         self.dialog.close()
         self.mock_dialog.destroy.assert_called_once()
 
+    def test_retry_invokes_callback(self):
+        callback = MagicMock()
+        self.dialog.show_error(1, "test error", callback)
+        self.dialog._retry()
+        callback.assert_called_once()
+
     def test_steps_contain_expected_names(self):
         step_names = self.dialog.STEPS
         self.assertIn("Đọc dữ liệu thùng từ Excel", step_names)
