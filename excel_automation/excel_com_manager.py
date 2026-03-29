@@ -254,14 +254,14 @@ class ExcelCOMManager:
             if self.excel_app:
                 self.excel_app.ScreenUpdating = False
 
-            for row in range(start_row, end_row + 1):
-                self.worksheet.Rows(row).Hidden = False
+            range_str = f"{start_row}:{end_row}"
+            self.worksheet.Range(range_str).EntireRow.Hidden = False
 
             if self.excel_app:
                 self.excel_app.ScreenUpdating = True
 
             logger.info(f"Đã hiện tất cả dòng từ {start_row} đến {end_row}")
-            
+
         except Exception as e:
             if self.excel_app:
                 self.excel_app.ScreenUpdating = True

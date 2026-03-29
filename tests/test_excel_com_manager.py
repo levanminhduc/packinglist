@@ -78,5 +78,33 @@ class TestClearQuantityColumnsBulk(unittest.TestCase):
             self.manager.clear_quantity_columns()
 
 
+class TestShowAllRowsBulk(unittest.TestCase):
+
+    def setUp(self):
+        with patch.object(ExcelCOMManager, '__init__', lambda self, *a, **kw: None):
+            self.manager = ExcelCOMManager()
+            self.manager.config = MagicMock()
+            self.manager.config.get_start_row.return_value = 19
+            self.manager.config.get_end_row.return_value = 59
+            self.manager.excel_app = MagicMock()
+            self.manager.worksheet = MagicMock()
+
+    def test_unhides_entire_range(self):
+        self.manager.show_all_rows(start_row=19, end_row=59)
+
+        self.manager.worksheet.Range.assert_called_once_with("19:59")
+
+    def test_raises_if_no_worksheet(self):
+        self.manager.worksheet = None
+        with self.assertRaises(RuntimeError):
+            self.manager.show_all_rows()
+
+    def test_screen_updating_restored_on_error(self):
+        self.manager.worksheet.Range.side_effect = Exception("COM error")
+
+        with self.assertRaises(RuntimeError):
+            self.manager.show_all_rows(start_row=19, end_row=59)
+
+
 if __name__ == "__main__":
     unittest.main()
