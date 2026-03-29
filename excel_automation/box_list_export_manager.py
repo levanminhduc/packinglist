@@ -5,7 +5,7 @@ import win32clipboard
 import logging
 
 from excel_automation.box_list_export_config import BoxListExportConfig
-from excel_automation.utils import get_size_sort_key, normalize_size_value, find_last_data_row
+from excel_automation.utils import get_size_sort_key, normalize_size_value
 
 logger = logging.getLogger(__name__)
 
@@ -101,30 +101,61 @@ class BoxListExportManager:
         size_column = self.config.get_size_column()
         size_data_start_row = self.config.get_size_data_start_row()
 
-        # Tự nhận diện dòng cuối thay vì dùng config cứng
         size_column_number = self._column_letter_to_number(size_column)
-        size_data_end_row = find_last_data_row(
-            worksheet, size_column_number, size_data_start_row
-        )
 
-        size_to_row: Dict[str, int] = {}
-        for row in range(size_data_start_row, size_data_end_row + 1):
-            cell_value = worksheet.Cells(row, size_column_number).Value
-            if cell_value is not None:
-                size_str = normalize_size_value(cell_value)
-                if size_str:
-                    size_to_row[size_str] = row
-
-        box_ranges: Dict[str, List[Tuple[int, int, int, int]]] = {}
-
-        # Xác định cột cuối cùng có dữ liệu thay vì hardcode
         try:
             used_range = worksheet.UsedRange
             max_column = used_range.Column + used_range.Columns.Count - 1
-            # Tối thiểu quét đến cột 38 (AL), tối đa theo UsedRange
             scan_end_column = max(39, max_column + 1)
         except Exception:
-            scan_end_column = 39  # Fallback: cột G→AL
+            scan_end_column = 39
+
+        size_data_end_row = self.config.get_size_data_end_row()
+        try:
+            range_str = f"{size_column}{size_data_start_row}:{size_column}{size_data_end_row}"
+            raw_size_values = worksheet.Range(range_str).Value
+        except Exception:
+            raw_size_values = None
+
+        size_to_row: Dict[str, int] = {}
+        if raw_size_values is not None:
+            if not isinstance(raw_size_values, tuple):
+                raw_size_values = ((raw_size_values,),)
+            for row_offset, row_tuple in enumerate(raw_size_values):
+                cell_value = row_tuple[0] if isinstance(row_tuple, tuple) else row_tuple
+                if cell_value is not None and str(cell_value).strip() != "":
+                    size_str = normalize_size_value(cell_value)
+                    if size_str:
+                        size_to_row[size_str] = size_data_start_row + row_offset
+
+        start_col = 7
+        end_col = scan_end_column - 1
+
+        try:
+            box_start_values_raw = worksheet.Range(
+                worksheet.Cells(box_start_row, start_col),
+                worksheet.Cells(box_start_row, end_col)
+            ).Value
+        except Exception:
+            box_start_values_raw = None
+
+        try:
+            box_end_values_raw = worksheet.Range(
+                worksheet.Cells(box_end_row, start_col),
+                worksheet.Cells(box_end_row, end_col)
+            ).Value
+        except Exception:
+            box_end_values_raw = None
+
+        if box_start_values_raw is not None and not isinstance(box_start_values_raw, tuple):
+            box_start_values_raw = ((box_start_values_raw,),)
+        if box_end_values_raw is not None and not isinstance(box_end_values_raw, tuple):
+            box_end_values_raw = ((box_end_values_raw,),)
+
+        box_start_values = box_start_values_raw[0] if box_start_values_raw else ()
+        box_end_values = box_end_values_raw[0] if box_end_values_raw else ()
+
+        box_ranges: Dict[str, List[Tuple[int, int, int, int]]] = {}
 
         for size in selected_sizes:
             if size not in size_to_row:
@@ -133,51 +164,62 @@ class BoxListExportManager:
                 continue
 
             size_row = size_to_row[size]
+
+            try:
+                size_row_values_raw = worksheet.Range(
+                    worksheet.Cells(size_row, start_col),
+                    worksheet.Cells(size_row, end_col)
+                ).Value
+            except Exception:
+                box_ranges[size] = []
+                continue
+
+            if size_row_values_raw is not None and not isinstance(size_row_values_raw, tuple):
+                size_row_values_raw = ((size_row_values_raw,),)
+
+            size_row_values = size_row_values_raw[0] if size_row_values_raw else ()
+
             size_box_ranges: List[Tuple[int, int, int, int]] = []
 
-            for column_number in range(7, scan_end_column):
+            for col_offset in range(len(size_row_values)):
+                column_number = start_col + col_offset
+                quantity_value = size_row_values[col_offset]
+
+                if quantity_value is None:
+                    continue
+
                 try:
-                    quantity_value = worksheet.Cells(size_row, column_number).Value
-
-                    if quantity_value is None:
+                    quantity = int(float(quantity_value))
+                    if quantity <= 0:
                         continue
+                except (ValueError, TypeError):
+                    continue
 
-                    try:
-                        quantity = int(float(quantity_value))
-                        if quantity <= 0:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
+                if col_offset >= len(box_start_values) or col_offset >= len(box_end_values):
+                    continue
 
-                    box_start_value = worksheet.Cells(box_start_row, column_number).Value
-                    box_end_value = worksheet.Cells(box_end_row, column_number).Value
+                box_start_value = box_start_values[col_offset]
+                box_end_value = box_end_values[col_offset]
 
-                    if box_start_value is None or box_end_value is None:
-                        continue
+                if box_start_value is None or box_end_value is None:
+                    continue
 
-                    try:
-                        box_start = int(box_start_value)
-                        box_end = int(box_end_value)
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            f"Size {size}, cột {column_number}: box_start hoặc box_end không hợp lệ"
-                        )
-                        continue
-
-                    if box_start > box_end:
-                        logger.warning(
-                            f"Size {size}, cột {column_number}: box_start ({box_start}) > box_end ({box_end})"
-                        )
-                        continue
-
-                    size_box_ranges.append((box_start, box_end, column_number, quantity))
-
-                except Exception as e:
-                    logger.error(
-                        f"Lỗi khi đọc box range cho size {size}, cột {column_number}: {e}",
-                        exc_info=True
+                try:
+                    box_start = int(box_start_value)
+                    box_end = int(box_end_value)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Size {size}, cột {column_number}: box_start hoặc box_end không hợp lệ"
                     )
                     continue
+
+                if box_start > box_end:
+                    logger.warning(
+                        f"Size {size}, cột {column_number}: box_start ({box_start}) > box_end ({box_end})"
+                    )
+                    continue
+
+                size_box_ranges.append((box_start, box_end, column_number, quantity))
 
             box_ranges[size] = size_box_ranges
 
@@ -370,28 +412,50 @@ class BoxListExportManager:
             columns = self.split_into_columns(content_lines)
             start_col_num = self._column_letter_to_number(start_column)
 
+            new_sheet.Cells(start_row, start_col_num).Value = header
+            new_sheet.Cells(start_row, start_col_num).Font.Bold = True
+            new_sheet.Cells(start_row, start_col_num).Font.Size = 20
+            new_sheet.Cells(start_row, start_col_num).HorizontalAlignment = -4131
+
             for col_idx, column_lines in enumerate(columns):
                 col_num = start_col_num + col_idx
-                current_row = start_row
+                data_start_row = start_row + header_rows
 
-                if col_idx == 0:
-                    new_sheet.Cells(current_row, col_num).Value = header
-                    new_sheet.Cells(current_row, col_num).Font.Bold = True
-                    new_sheet.Cells(current_row, col_num).Font.Size = 20
-                    new_sheet.Cells(current_row, col_num).HorizontalAlignment = -4131
+                if column_lines:
+                    data_array = [[line] for line in column_lines]
+                    data_end_row = data_start_row + len(column_lines) - 1
+                    new_sheet.Range(
+                        new_sheet.Cells(data_start_row, col_num),
+                        new_sheet.Cells(data_end_row, col_num)
+                    ).Value = data_array
 
-                current_row += header_rows
+                    new_sheet.Range(
+                        new_sheet.Cells(data_start_row, col_num),
+                        new_sheet.Cells(data_end_row, col_num)
+                    ).HorizontalAlignment = -4108
 
-                for line in column_lines:
-                    new_sheet.Cells(current_row, col_num).Value = line
-                    new_sheet.Cells(current_row, col_num).HorizontalAlignment = -4108
+                    bold_rows = []
+                    non_bold_rows = []
+                    for line_idx, line in enumerate(column_lines):
+                        row_num = data_start_row + line_idx
+                        if line.startswith("SIZE "):
+                            bold_rows.append(row_num)
+                        else:
+                            non_bold_rows.append(row_num)
 
-                    if line.startswith("SIZE "):
-                        new_sheet.Cells(current_row, col_num).Font.Bold = True
-                    else:
-                        new_sheet.Cells(current_row, col_num).Font.Bold = False
+                    if bold_rows:
+                        bold_range = self._build_union_range(
+                            new_sheet, bold_rows, col_num
+                        )
+                        if bold_range:
+                            bold_range.Font.Bold = True
 
-                    current_row += 1
+                    if non_bold_rows:
+                        non_bold_range = self._build_union_range(
+                            new_sheet, non_bold_rows, col_num
+                        )
+                        if non_bold_range:
+                            non_bold_range.Font.Bold = False
 
             logger.info(f"Đã paste và format {len(columns)} cột vào sheet mới: {new_sheet.Name}")
             return True
@@ -399,6 +463,76 @@ class BoxListExportManager:
             logger.error(f"Lỗi khi paste vào Excel: {e}", exc_info=True)
             return False
     
+    def step_read_box_ranges(
+        self,
+        worksheet: CDispatch,
+        selected_sizes: List[str]
+    ) -> Dict[str, List[Tuple[int, int, int, int]]]:
+        return self.read_box_ranges(worksheet, selected_sizes)
+
+    def step_analyze_and_build_result(
+        self,
+        workbook: CDispatch,
+        worksheet: CDispatch,
+        selected_sizes: List[str],
+        box_ranges_dict: Dict[str, List[Tuple[int, int, int, int]]],
+        items_per_box: Optional[int] = None
+    ) -> BoxListExportResult:
+        valid_count = sum(
+            1 for size_ranges in box_ranges_dict.values()
+            if len(size_ranges) > 0
+        )
+
+        if valid_count == 0:
+            return BoxListExportResult(
+                success=False,
+                error_message="Không có size nào có dữ liệu box hợp lệ"
+            )
+
+        box_ranges = self.detect_combined_sizes(
+            selected_sizes, box_ranges_dict, items_per_box
+        )
+
+        partial_count = sum(1 for br in box_ranges if br.is_partial())
+        logger.info(
+            f"Đã phát hiện {len(box_ranges)} box ranges "
+            f"({sum(1 for br in box_ranges if br.is_combined())} kết hợp, "
+            f"{partial_count} thùng lẻ)"
+        )
+
+        header = self.generate_header(workbook, worksheet, items_per_box)
+
+        content_lines = []
+        for box_range in box_ranges:
+            separator = self.config.get_combined_size_separator()
+            size_label = box_range.get_size_label(separator)
+            content_lines.append(f"SIZE {size_label}")
+            for box_number in box_range.get_box_numbers():
+                content_lines.append(str(box_number))
+
+        columns = self.split_into_columns(content_lines)
+        total_columns = len(columns)
+
+        text_parts = []
+        for col_idx, column_lines in enumerate(columns):
+            text_parts.append(header)
+            text_parts.append("")
+            text_parts.extend(column_lines)
+            if col_idx < len(columns) - 1:
+                text_parts.append("")
+
+        text = "\n".join(text_parts)
+        total_boxes = sum(len(br.get_box_numbers()) for br in box_ranges)
+
+        return BoxListExportResult(
+            success=True,
+            text=text,
+            box_ranges=box_ranges,
+            total_boxes=total_boxes,
+            header=header,
+            total_columns=total_columns
+        )
+
     def export_box_list(
         self,
         excel_app: CDispatch,
@@ -412,71 +546,22 @@ class BoxListExportManager:
         try:
             excel_app.ScreenUpdating = False
 
-            box_ranges_dict = self.read_box_ranges(worksheet, selected_sizes)
+            box_ranges_dict = self.step_read_box_ranges(worksheet, selected_sizes)
 
-            valid_count = sum(
-                1 for size_ranges in box_ranges_dict.values()
-                if len(size_ranges) > 0
+            result = self.step_analyze_and_build_result(
+                workbook, worksheet, selected_sizes,
+                box_ranges_dict, items_per_box
             )
 
-            if valid_count == 0:
-                error_msg = "Không có size nào có dữ liệu box hợp lệ"
-                logger.warning(error_msg)
-                return BoxListExportResult(success=False, error_message=error_msg)
+            if result.success:
+                self.copy_to_clipboard(result.text)
+                logger.info(
+                    f"Hoàn thành xuất danh sách thùng: "
+                    f"{result.total_boxes} thùng, {result.total_columns} cột"
+                )
 
-            box_ranges = self.detect_combined_sizes(
-                selected_sizes, box_ranges_dict, items_per_box
-            )
+            return result
 
-            partial_count = sum(1 for br in box_ranges if br.is_partial())
-            logger.info(
-                f"Đã phát hiện {len(box_ranges)} box ranges "
-                f"({sum(1 for br in box_ranges if br.is_combined())} kết hợp, "
-                f"{partial_count} thùng lẻ)"
-            )
-
-            header = self.generate_header(workbook, worksheet, items_per_box)
-
-            content_lines = []
-            for box_range in box_ranges:
-                separator = self.config.get_combined_size_separator()
-                size_label = box_range.get_size_label(separator)
-                content_lines.append(f"SIZE {size_label}")
-
-                for box_number in box_range.get_box_numbers():
-                    content_lines.append(str(box_number))
-
-            columns = self.split_into_columns(content_lines)
-            total_columns = len(columns)
-
-            text_parts = []
-            for col_idx, column_lines in enumerate(columns):
-                text_parts.append(header)
-                text_parts.append("")
-                text_parts.extend(column_lines)
-                if col_idx < len(columns) - 1:
-                    text_parts.append("")
-
-            text = "\n".join(text_parts)
-
-            total_boxes = sum(len(br.get_box_numbers()) for br in box_ranges)
-
-            clipboard_success = self.copy_to_clipboard(text)
-
-            if not clipboard_success:
-                logger.warning("Không thể copy vào clipboard, nhưng vẫn trả về kết quả")
-
-            logger.info(f"Hoàn thành xuất danh sách thùng: {total_boxes} thùng, {total_columns} cột")
-
-            return BoxListExportResult(
-                success=True,
-                text=text,
-                box_ranges=box_ranges,
-                total_boxes=total_boxes,
-                header=header,
-                total_columns=total_columns
-            )
-            
         except Exception as e:
             error_msg = f"Lỗi khi xuất danh sách thùng: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -484,6 +569,32 @@ class BoxListExportManager:
         finally:
             excel_app.ScreenUpdating = True
     
+    def _build_union_range(
+        self,
+        sheet: CDispatch,
+        rows: List[int],
+        col_num: int
+    ) -> Optional[CDispatch]:
+        if not rows:
+            return None
+
+        try:
+            excel_app = sheet.Application
+            result_range = sheet.Cells(rows[0], col_num)
+
+            batch_size = 30
+            for i in range(1, len(rows), batch_size):
+                batch = rows[i:i + batch_size]
+                for row in batch:
+                    result_range = excel_app.Union(
+                        result_range, sheet.Cells(row, col_num)
+                    )
+
+            return result_range
+        except Exception as e:
+            logger.warning(f"Không thể tạo union range, fallback từng cell: {e}")
+            return None
+
     def _column_letter_to_number(self, column: str) -> int:
         column = column.upper()
         result = 0
