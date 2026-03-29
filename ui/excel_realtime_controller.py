@@ -1337,7 +1337,12 @@ class ExcelRealtimeController:
         for i in range(3):
             progress.complete_step(i)
 
+        written_count = 0
+        hidden_count = 0
+        selected_sizes = []
+
         def run_write_steps(start_from: int = 3):
+            nonlocal written_count, hidden_count, selected_sizes
             try:
                 if start_from <= 3:
                     progress.start_step(3)
@@ -1356,10 +1361,46 @@ class ExcelRealtimeController:
                     self._apply_imported_sizes(size_quantities)
                     progress.complete_step(5)
 
-                progress.start_step(6)
+                if start_from <= 6:
+                    progress.start_step(6)
+                    selected_sizes = [
+                        size for size in size_quantities.keys()
+                        if size in self.checkboxes
+                    ]
+                    display_manager = SizeQuantityDisplayManager(self.config)
+                    current_quantities = display_manager.get_current_quantities(
+                        self.com_manager.worksheet,
+                        selected_sizes,
+                        self.config.get_column()
+                    )
+                    written_count = display_manager.write_quantities_to_excel(
+                        self.com_manager.excel_app,
+                        self.com_manager.worksheet,
+                        selected_sizes,
+                        size_quantities,
+                        current_quantities,
+                        self.config.get_column()
+                    )
+                    if self._auto_save_timer_id is not None:
+                        self.root.after_cancel(self._auto_save_timer_id)
+                        self._auto_save_timer_id = None
+                        self._auto_save_pending = False
+                    progress.complete_step(6)
+
+                if start_from <= 7:
+                    progress.start_step(7)
+                    if not selected_sizes:
+                        selected_sizes = [
+                            size for size in size_quantities.keys()
+                            if size in self.checkboxes
+                        ]
+                    hidden_count = self.com_manager.hide_rows_realtime(selected_sizes)
+                    progress.complete_step(7)
+
+                progress.start_step(8)
                 self._update_po_color_display()
                 self._update_box_count_display()
-                progress.complete_step(6)
+                progress.complete_step(8)
 
                 progress.finish()
 
@@ -1372,7 +1413,9 @@ class ExcelRealtimeController:
                     f"PO: {po}\n"
                     f"Color: {color}\n"
                     f"Sizes: {len(size_quantities)}\n"
-                    f"Total Qty: {sum(size_quantities.values()):,}"
+                    f"Total Qty: {sum(size_quantities.values()):,}\n"
+                    f"Đã ghi {written_count} cells vào Excel\n"
+                    f"Đã ẩn {hidden_count} dòng"
                 )
 
             except Exception as e:
