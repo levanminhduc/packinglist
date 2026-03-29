@@ -44,6 +44,10 @@ class DialogConfigManager:
             "pdf_import": {
                 "width": 600,
                 "height": 550
+            },
+            "sheet_rename": {
+                "width": 400,
+                "height": 200
             }
         }
     }

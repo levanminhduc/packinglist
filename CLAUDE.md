@@ -70,6 +70,10 @@ data/
 
 `ui/excel_realtime_controller.py` (~63KB) contains the primary `ExcelRealtimeController` class with all main window logic: file open, sheet selection, size scanning, checkbox controls, PO/color/quantity dialogs, auto-save, auto-refresh.
 
+## Agent & Subagent Rules
+
+- **Codebase discovery**: Khi cần tìm hiểu codebase (tìm file, hiểu kiến trúc, tìm symbol, class, function), luôn ưu tiên dùng `mcp__auggie__codebase-retrieval` (Context Engine) thay vì đọc từng file thủ công. Áp dụng cho cả main agent và tất cả subagent (superpowers, Plan, Explore, general-purpose).
+
 ## Conventions
 
 - **Language**: Always reply in Vietnamese. All user-facing text and error messages are in Vietnamese
