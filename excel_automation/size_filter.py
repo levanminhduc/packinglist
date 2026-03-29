@@ -121,7 +121,7 @@ class SizeFilterManager:
                          start_row: Optional[int] = None, end_row: Optional[int] = None) -> int:
         column = column or self.config.get_column()
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self._detect_end_row(column)
+        end_row = end_row or self.config.get_end_row()
         
         self._validate_row_range(start_row, end_row)
         self._load_workbook()
@@ -149,7 +149,7 @@ class SizeFilterManager:
     
     def reset_all_rows(self, start_row: Optional[int] = None, end_row: Optional[int] = None) -> None:
         start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self._detect_end_row(column)
+        end_row = end_row or self.config.get_end_row()
         
         self._validate_row_range(start_row, end_row)
         self._load_workbook()
