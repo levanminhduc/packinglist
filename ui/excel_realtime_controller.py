@@ -13,6 +13,7 @@ from excel_automation.dialog_config_manager import DialogConfigManager
 from excel_automation.size_quantity_display_manager import SizeQuantityDisplayManager
 from excel_automation.box_list_export_config import BoxListExportConfig
 from excel_automation.box_list_export_manager import BoxListExportManager
+from ui.box_list_export_progress_dialog import BoxListExportProgressDialog
 from excel_automation.carton_allocation_calculator import (
     CartonAllocationCalculator,
     AllocationResult
@@ -1552,33 +1553,61 @@ class ExcelRealtimeController:
             )
             return
 
-        try:
-            self.status_label.config(text="Đang xuất danh sách thùng...")
-            self.root.update()
+        config = BoxListExportConfig()
+        manager = BoxListExportManager(config)
+        items_per_box = self._extract_items_per_box()
 
-            config = BoxListExportConfig()
-            manager = BoxListExportManager(config)
+        progress = BoxListExportProgressDialog(self.root)
 
-            items_per_box = self._extract_items_per_box()
+        box_ranges_dict = None
+        result = None
+        new_sheet = None
 
-            result = manager.export_box_list(
-                self.com_manager.excel_app,
-                self.com_manager.workbook,
-                self.com_manager.worksheet,
-                selected_sizes,
-                items_per_box
-            )
+        def run_export_steps(start_from: int = 0):
+            nonlocal box_ranges_dict, result, new_sheet
 
-            if result.success:
-                summary = result.get_summary()
+            try:
+                if start_from <= 0:
+                    progress.start_step(0)
+                    self.com_manager.excel_app.ScreenUpdating = False
+                    box_ranges_dict = manager.step_read_box_ranges(
+                        self.com_manager.worksheet, selected_sizes
+                    )
+                    progress.complete_step(0)
 
-                try:
+                if start_from <= 1:
+                    progress.start_step(1)
+                    result = manager.step_analyze_and_build_result(
+                        self.com_manager.workbook,
+                        self.com_manager.worksheet,
+                        selected_sizes,
+                        box_ranges_dict,
+                        items_per_box
+                    )
+
+                    if not result.success:
+                        self.com_manager.excel_app.ScreenUpdating = True
+                        progress.close()
+                        messagebox.showerror(
+                            "Lỗi",
+                            f"Không thể xuất danh sách thùng:\n\n{result.error_message}"
+                        )
+                        self.status_label.config(text="Lỗi khi xuất danh sách thùng")
+                        return
+
+                    progress.complete_step(1)
+
+                if start_from <= 2:
+                    progress.start_step(2)
                     new_sheet = manager.create_new_sheet(
                         self.com_manager.workbook,
                         self.com_manager.worksheet
                     )
+                    progress.complete_step(2)
 
-                    paste_success = manager.paste_and_format_to_excel(
+                if start_from <= 3:
+                    progress.start_step(3)
+                    manager.paste_and_format_to_excel(
                         self.com_manager.workbook,
                         self.com_manager.worksheet,
                         result.box_ranges,
@@ -1587,47 +1616,37 @@ class ExcelRealtimeController:
                         1,
                         items_per_box
                     )
+                    progress.complete_step(3)
 
-                    if paste_success:
-                        messagebox.showinfo(
-                            "Thành Công",
-                            f"{summary}\n\n"
-                            f"Danh sách thùng đã được xuất vào sheet mới: {new_sheet.Name}\n"
-                            f"Tất cả nội dung đã được căn giữa tự động."
-                        )
-                    else:
-                        messagebox.showinfo(
-                            "Thành Công",
-                            f"{summary}\n\n"
-                            f"Danh sách thùng đã được copy vào clipboard.\n"
-                            f"Vui lòng paste (Ctrl+V) vào Excel."
-                        )
-                except Exception as paste_error:
-                    logger.warning(f"Không thể paste tự động: {paste_error}")
-                    messagebox.showinfo(
-                        "Thành Công",
-                        f"{summary}\n\n"
-                        f"Danh sách thùng đã được copy vào clipboard.\n"
-                        f"Vui lòng paste (Ctrl+V) vào Excel."
-                    )
+                if start_from <= 4:
+                    progress.start_step(4)
+                    manager.copy_to_clipboard(result.text)
+                    progress.complete_step(4)
 
+                self.com_manager.excel_app.ScreenUpdating = True
+
+                progress.start_step(5)
+                progress.complete_step(5)
+                progress.finish()
+
+                summary = result.get_summary()
                 self.status_label.config(text=summary)
                 logger.info(f"Xuất danh sách thùng thành công: {summary}")
-            else:
-                messagebox.showerror(
-                    "Lỗi",
-                    f"Không thể xuất danh sách thùng:\n\n{result.error_message}"
-                )
-                self.status_label.config(text="Lỗi khi xuất danh sách thùng")
-                logger.error(f"Xuất danh sách thùng thất bại: {result.error_message}")
 
-        except Exception as e:
-            logger.error(f"Lỗi khi xuất danh sách thùng: {e}", exc_info=True)
-            messagebox.showerror(
-                "Lỗi",
-                f"Không thể xuất danh sách thùng:\n\n{str(e)}"
-            )
-            self.status_label.config(text="Lỗi khi xuất danh sách thùng")
+                self.root.after(1200, lambda: messagebox.showinfo(
+                    "Thành Công",
+                    f"{summary}\n\n"
+                    f"Danh sách thùng đã được xuất vào sheet mới: {new_sheet.Name}\n"
+                    f"Tất cả nội dung đã được căn giữa tự động."
+                ))
+
+            except Exception as e:
+                self.com_manager.excel_app.ScreenUpdating = True
+                step = progress.current_step
+                logger.error(f"Lỗi khi xuất danh sách thùng tại bước {step}: {e}", exc_info=True)
+                progress.show_error(step, str(e), lambda: run_export_steps(step))
+
+        run_export_steps()
 
     def _open_pdf_reader(self) -> None:
         """Mở dialog đọc PDF."""
