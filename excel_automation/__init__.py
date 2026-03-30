@@ -27,6 +27,7 @@ from excel_automation.validation_rules import (
 from excel_automation.size_filter import SizeFilterManager
 from excel_automation.size_filter_config import SizeFilterConfig
 from excel_automation.excel_com_manager import ExcelCOMManager
+from excel_automation.duplicate_size_detector import DuplicateSizeDetector
 from excel_automation.utils import get_size_sort_key
 from excel_automation.pdf_reader import (
     extract_text_from_pdf,
@@ -62,6 +63,7 @@ __all__ = [
     "SizeFilterManager",
     "SizeFilterConfig",
     "ExcelCOMManager",
+    "DuplicateSizeDetector",
     "get_size_sort_key",
     "CartonAllocationCalculator",
     "SizeAllocation",
