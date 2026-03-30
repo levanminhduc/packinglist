@@ -82,34 +82,17 @@ class PDFImportDialog:
         total_row = ttk.Frame(info_frame)
         total_row.pack(fill=tk.X, pady=2)
         ttk.Label(total_row, text="Total Qty:", width=12).pack(side=tk.LEFT)
-        ttk.Label(total_row, text=f"{self.pdf_data.total_quantity:,}", font=("Consolas", 11, "bold"), foreground="#e65100").pack(side=tk.LEFT, padx=(5, 0))
+        self.total_qty_value_label = ttk.Label(
+            total_row, text=f"{self.pdf_data.total_quantity:,}",
+            font=("Consolas", 11, "bold"), foreground="#e65100"
+        )
+        self.total_qty_value_label.pack(side=tk.LEFT, padx=(5, 0))
 
-        if self.pdf_data.quantity_mismatch:
-            diff = self.pdf_data.ordertotal_from_pdf - self.pdf_data.total_quantity
-            mismatch_text = (
-                f"⚠️ Chênh lệch! Parse được {self.pdf_data.total_quantity:,} qty "
-                f"từ {len(self.pdf_data.size_quantities)} size, "
-                f"Ordertotal PDF = {self.pdf_data.ordertotal_from_pdf:,} "
-                f"(thiếu {diff:,} qty)"
-            )
-            ttk.Label(
-                info_frame, text=mismatch_text,
-                foreground="#c62828", wraplength=450
-            ).pack(fill=tk.X, pady=(4, 0))
-        elif self.pdf_data.ordertotal_from_pdf is None:
-            ttk.Label(
-                info_frame,
-                text="ℹ️ Không tìm thấy dòng Ordertotal trong PDF để kiểm tra chéo",
-                foreground="gray"
-            ).pack(fill=tk.X, pady=(4, 0))
-        else:
-            ttk.Label(
-                info_frame,
-                text="✅ Khớp với Ordertotal PDF",
-                foreground="#2e7d32"
-            ).pack(fill=tk.X, pady=(4, 0))
+        self.ordertotal_status_label = ttk.Label(info_frame, text="", wraplength=450)
+        self.ordertotal_status_label.pack(fill=tk.X, pady=(4, 0))
 
         self._create_size_table(main_frame)
+        self._recalculate_totals()
         self._create_warning_section(main_frame)
         self._create_buttons(main_frame)
 
@@ -206,8 +189,52 @@ class PDFImportDialog:
         else:
             label.configure(text="⚠️ Chỉ có trong PDF", foreground="#c62828")
 
+        self._recalculate_totals()
+
     def _on_check_changed(self, size: str) -> None:
-        pass
+        self._recalculate_totals()
+
+    def _recalculate_totals(self) -> None:
+        checked_total = sum(
+            self.pdf_data.size_quantities[s]
+            for s, var in self.size_checkboxes.items()
+            if var.get()
+        )
+
+        self.total_qty_value_label.configure(text=f"{checked_total:,}")
+
+        if self.pdf_data.ordertotal_from_pdf is None:
+            self.ordertotal_status_label.configure(
+                text="ℹ️ Không tìm thấy dòng Ordertotal trong PDF để kiểm tra chéo",
+                foreground="gray"
+            )
+            return
+
+        if checked_total == self.pdf_data.ordertotal_from_pdf:
+            self.ordertotal_status_label.configure(
+                text="✅ Khớp với Ordertotal PDF",
+                foreground="#2e7d32"
+            )
+        else:
+            diff = self.pdf_data.ordertotal_from_pdf - checked_total
+            if diff > 0:
+                self.ordertotal_status_label.configure(
+                    text=(
+                        f"⚠️ Chênh lệch! Đã chọn {checked_total:,} qty, "
+                        f"Ordertotal PDF = {self.pdf_data.ordertotal_from_pdf:,} "
+                        f"(thiếu {diff:,} qty)"
+                    ),
+                    foreground="#c62828"
+                )
+            else:
+                self.ordertotal_status_label.configure(
+                    text=(
+                        f"⚠️ Chênh lệch! Đã chọn {checked_total:,} qty, "
+                        f"Ordertotal PDF = {self.pdf_data.ordertotal_from_pdf:,} "
+                        f"(dư {abs(diff):,} qty)"
+                    ),
+                    foreground="#c62828"
+                )
 
     def _on_canvas_mousewheel(self, event) -> None:
         try:
