@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 import logging
 
-from excel_automation.utils import normalize_size_value, get_size_sort_key
+from excel_automation.utils import normalize_size_value
 
 logger = logging.getLogger(__name__)
 
