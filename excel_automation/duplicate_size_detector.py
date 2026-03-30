@@ -67,3 +67,34 @@ class DuplicateSizeDetector:
         except Exception as e:
             logger.error(f"Lỗi khi detect size trùng: {e}")
             raise RuntimeError(f"Không thể quét size trùng: {str(e)}")
+
+    def delete_rows(self, rows_to_delete: List[int]) -> int:
+        if not rows_to_delete:
+            return 0
+
+        worksheet = self.com_manager.worksheet
+        excel_app = self.com_manager.excel_app
+
+        sorted_rows = sorted(rows_to_delete, reverse=True)
+        deleted_count = 0
+
+        try:
+            if excel_app:
+                excel_app.ScreenUpdating = False
+
+            for row in sorted_rows:
+                worksheet.Rows(row).Delete()
+                deleted_count += 1
+                logger.info(f"Đã xóa dòng {row}")
+
+            logger.info(f"Đã xóa tổng cộng {deleted_count} dòng trùng")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xóa dòng (đã xóa {deleted_count}/{len(sorted_rows)}): {e}")
+            raise RuntimeError(
+                f"Lỗi khi xóa dòng trùng (đã xóa {deleted_count}/{len(sorted_rows)}): {str(e)}"
+            )
+        finally:
+            if excel_app:
+                excel_app.ScreenUpdating = True

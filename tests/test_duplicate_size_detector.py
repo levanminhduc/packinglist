@@ -51,5 +51,44 @@ class TestDetectDuplicates(unittest.TestCase):
         self.assertEqual(result, {})
 
 
+class TestDeleteRows(unittest.TestCase):
+
+    def setUp(self):
+        self.com_manager = MagicMock()
+        self.com_manager.worksheet = MagicMock()
+        self.com_manager.excel_app = MagicMock()
+        self.screen_updating = PropertyMock()
+        type(self.com_manager.excel_app).ScreenUpdating = self.screen_updating
+        self.detector = DuplicateSizeDetector(self.com_manager)
+
+    def test_deletes_rows_bottom_up(self):
+        rows_to_delete = [19, 25, 31]
+        result = self.detector.delete_rows(rows_to_delete)
+
+        self.assertEqual(result, 3)
+
+        calls = self.com_manager.worksheet.Rows.call_args_list
+        deleted_rows = [call[0][0] for call in calls]
+        self.assertEqual(deleted_rows, [31, 25, 19])
+
+    def test_screen_updating_toggled(self):
+        self.detector.delete_rows([19, 25])
+
+        self.screen_updating.assert_any_call(False)
+        self.screen_updating.assert_any_call(True)
+
+    def test_empty_list_returns_zero(self):
+        result = self.detector.delete_rows([])
+        self.assertEqual(result, 0)
+
+    def test_screen_updating_restored_on_error(self):
+        self.com_manager.worksheet.Rows.return_value.Delete.side_effect = Exception("COM error")
+
+        with self.assertRaises(RuntimeError):
+            self.detector.delete_rows([19])
+
+        self.screen_updating.assert_called_with(True)
+
+
 if __name__ == '__main__':
     unittest.main()
