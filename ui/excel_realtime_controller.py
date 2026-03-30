@@ -482,6 +482,11 @@ class ExcelRealtimeController:
             self._deselect_all_sizes()
             progress.complete_step(2)
 
+            progress.dialog.withdraw()
+            self._check_and_remove_duplicate_sizes()
+            progress.dialog.deiconify()
+            progress.dialog.grab_set()
+
             progress.start_step(3)
             self.com_manager.show_all_rows()
             self.sheet_names = self.com_manager.get_sheet_names()
@@ -514,6 +519,47 @@ class ExcelRealtimeController:
     def _copy_sheet_retry(self, progress: 'CopySheetProgressDialog', _) -> None:
         progress.close()
         self._copy_sheet()
+
+    def _check_and_remove_duplicate_sizes(self) -> None:
+        try:
+            from excel_automation.duplicate_size_detector import DuplicateSizeDetector
+            from ui.duplicate_size_dialog import DuplicateSizeDialog
+
+            detector = DuplicateSizeDetector(self.com_manager)
+            duplicates = detector.detect_duplicates()
+
+            if not duplicates:
+                logger.info("Không có size trùng sau copy sheet")
+                return
+
+            total_dup_rows = sum(len(rows) for rows in duplicates.values())
+            logger.info(f"Phát hiện {len(duplicates)} size trùng ({total_dup_rows} dòng)")
+
+            dialog = DuplicateSizeDialog(self.root, duplicates)
+            dialog.show()
+
+            rows_to_delete = dialog.get_rows_to_delete()
+
+            if not rows_to_delete:
+                logger.info("User bỏ qua xóa size trùng")
+                return
+
+            deleted = detector.delete_rows(rows_to_delete)
+
+            self._scan_sizes()
+            self._deselect_all_sizes()
+
+            self.status_label.config(
+                text=f"Đã xóa {deleted} dòng size trùng"
+            )
+            logger.info(f"Đã xóa {deleted} dòng size trùng sau copy sheet")
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý size trùng: {e}")
+            messagebox.showerror(
+                "Lỗi",
+                f"Lỗi khi xóa dòng trùng:\n{str(e)}"
+            )
 
     def _rearrange_buttons(self, event: Optional[tk.Event] = None) -> None:
         if not self.action_frame or not self.action_buttons:
