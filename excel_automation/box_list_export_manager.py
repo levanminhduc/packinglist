@@ -3,6 +3,7 @@ from typing import List, Dict, Tuple, Optional
 from win32com.client import CDispatch
 import win32clipboard
 import logging
+import math
 
 from excel_automation.box_list_export_config import BoxListExportConfig
 from excel_automation.utils import get_size_sort_key, normalize_size_value
@@ -98,6 +99,7 @@ class BoxListExportManager:
     ) -> Dict[str, List[Tuple[int, int, int, int]]]:
         box_start_row = self.config.get_box_start_row()
         box_end_row = self.config.get_box_end_row()
+        carton_count_row = self.config.get_carton_count_row()
         size_column = self.config.get_size_column()
         size_data_start_row = self.config.get_size_data_start_row()
 
@@ -147,13 +149,28 @@ class BoxListExportManager:
         except Exception:
             box_end_values_raw = None
 
+        try:
+            carton_count_values_raw = worksheet.Range(
+                worksheet.Cells(carton_count_row, start_col),
+                worksheet.Cells(carton_count_row, end_col)
+            ).Value
+        except Exception:
+            carton_count_values_raw = None
+
         if box_start_values_raw is not None and not isinstance(box_start_values_raw, tuple):
             box_start_values_raw = ((box_start_values_raw,),)
         if box_end_values_raw is not None and not isinstance(box_end_values_raw, tuple):
             box_end_values_raw = ((box_end_values_raw,),)
+        if carton_count_values_raw is not None and not isinstance(carton_count_values_raw, tuple):
+            carton_count_values_raw = ((carton_count_values_raw,),)
 
         box_start_values = box_start_values_raw[0] if box_start_values_raw else ()
         box_end_values = box_end_values_raw[0] if box_end_values_raw else ()
+        carton_count_values = carton_count_values_raw[0] if carton_count_values_raw else ()
+
+        column_box_info = self._calculate_column_box_info(
+            start_col, end_col, box_start_values, box_end_values, carton_count_values
+        )
 
         box_ranges: Dict[str, List[Tuple[int, int, int, int]]] = {}
 
@@ -195,35 +212,66 @@ class BoxListExportManager:
                 except (ValueError, TypeError):
                     continue
 
-                if col_offset >= len(box_start_values) or col_offset >= len(box_end_values):
+                if column_number not in column_box_info:
                     continue
 
-                box_start_value = box_start_values[col_offset]
-                box_end_value = box_end_values[col_offset]
-
-                if box_start_value is None or box_end_value is None:
-                    continue
-
-                try:
-                    box_start = int(box_start_value)
-                    box_end = int(box_end_value)
-                except (ValueError, TypeError):
-                    logger.warning(
-                        f"Size {size}, cột {column_number}: box_start hoặc box_end không hợp lệ"
-                    )
-                    continue
-
-                if box_start > box_end:
-                    logger.warning(
-                        f"Size {size}, cột {column_number}: box_start ({box_start}) > box_end ({box_end})"
-                    )
-                    continue
-
+                box_start, box_end = column_box_info[column_number]
                 size_box_ranges.append((box_start, box_end, column_number, quantity))
 
             box_ranges[size] = size_box_ranges
 
         return box_ranges
+
+    def _calculate_column_box_info(
+        self,
+        start_col: int,
+        end_col: int,
+        box_start_values: tuple,
+        box_end_values: tuple,
+        carton_count_values: tuple
+    ) -> Dict[int, Tuple[int, int]]:
+        column_box_info: Dict[int, Tuple[int, int]] = {}
+        max_box_end = 0
+        partial_columns: List[int] = []
+
+        num_cols = max(len(box_start_values), len(box_end_values), len(carton_count_values))
+
+        for col_offset in range(num_cols):
+            column_number = start_col + col_offset
+
+            box_start_value = box_start_values[col_offset] if col_offset < len(box_start_values) else None
+            box_end_value = box_end_values[col_offset] if col_offset < len(box_end_values) else None
+
+            if box_start_value is not None and box_end_value is not None:
+                try:
+                    box_start = int(box_start_value)
+                    box_end = int(box_end_value)
+                    if box_start <= box_end and box_start > 0:
+                        column_box_info[column_number] = (box_start, box_end)
+                        if box_end > max_box_end:
+                            max_box_end = box_end
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            carton_count_value = carton_count_values[col_offset] if col_offset < len(carton_count_values) else None
+            if carton_count_value is not None:
+                try:
+                    carton_count = float(carton_count_value)
+                    if 0 < carton_count < 1:
+                        partial_columns.append(column_number)
+                except (ValueError, TypeError):
+                    pass
+
+        if partial_columns and max_box_end > 0:
+            partial_box = max_box_end + 1
+            for column_number in partial_columns:
+                column_box_info[column_number] = (partial_box, partial_box)
+            logger.info(
+                f"Thùng lẻ: {len(partial_columns)} cột được gán thùng {partial_box}"
+            )
+
+        return column_box_info
     
     def detect_combined_sizes(
         self,
@@ -594,6 +642,71 @@ class BoxListExportManager:
         except Exception as e:
             logger.warning(f"Không thể tạo union range, fallback từng cell: {e}")
             return None
+
+    def validate_box_numbers(
+        self,
+        sheet: CDispatch,
+        start_row: int = 3
+    ) -> Tuple[bool, int, List[int]]:
+        try:
+            used_range = sheet.UsedRange
+            last_row = used_range.Row + used_range.Rows.Count - 1
+            last_col = used_range.Column + used_range.Columns.Count - 1
+
+            if last_row < start_row:
+                return True, 0, []
+
+            start_col_letter = "A"
+            end_col_letter = self._number_to_column_letter(last_col)
+            range_str = f"{start_col_letter}{start_row}:{end_col_letter}{last_row}"
+            raw_values = sheet.Range(range_str).Value
+
+            if raw_values is None:
+                return True, 0, []
+
+            if not isinstance(raw_values, tuple):
+                raw_values = ((raw_values,),)
+
+            box_numbers = set()
+            for row_tuple in raw_values:
+                if not isinstance(row_tuple, tuple):
+                    row_tuple = (row_tuple,)
+                for cell_value in row_tuple:
+                    if cell_value is not None:
+                        try:
+                            num = int(float(cell_value))
+                            if num > 0:
+                                box_numbers.add(num)
+                        except (ValueError, TypeError):
+                            pass
+
+            if not box_numbers:
+                return True, 0, []
+
+            max_box = max(box_numbers)
+            expected = set(range(1, max_box + 1))
+            missing = sorted(expected - box_numbers)
+
+            is_complete = len(missing) == 0
+
+            if is_complete:
+                logger.info(f"Kiểm tra thùng: Đủ {max_box} thùng (1-{max_box})")
+            else:
+                logger.warning(f"Kiểm tra thùng: Thiếu {len(missing)} số: {missing}")
+
+            return is_complete, max_box, missing
+
+        except Exception as e:
+            logger.error(f"Lỗi khi kiểm tra số thùng: {e}")
+            return False, 0, []
+
+    def _number_to_column_letter(self, col_num: int) -> str:
+        result = ""
+        while col_num > 0:
+            col_num -= 1
+            result = chr(col_num % 26 + ord('A')) + result
+            col_num //= 26
+        return result
 
     def _column_letter_to_number(self, column: str) -> int:
         column = column.upper()

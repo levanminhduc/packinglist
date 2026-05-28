@@ -14,6 +14,7 @@ class BoxListExportConfig:
         "box_list_export_config": {
             "box_start_row": 15,
             "box_end_row": 16,
+            "carton_count_row": 18,
             "size_column": "F",
             "size_data_start_row": 19,
             "size_data_end_row": 59,
@@ -68,7 +69,10 @@ class BoxListExportConfig:
     
     def get_box_end_row(self) -> int:
         return self.config['box_list_export_config'].get('box_end_row', 16)
-    
+
+    def get_carton_count_row(self) -> int:
+        return self.config['box_list_export_config'].get('carton_count_row', 18)
+
     def get_size_column(self) -> str:
         return self.config['box_list_export_config'].get('size_column', 'F')
     

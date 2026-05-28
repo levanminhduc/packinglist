@@ -76,25 +76,23 @@ class DuplicateSizeDetector:
         excel_app = self.com_manager.excel_app
 
         sorted_rows = sorted(rows_to_delete, reverse=True)
-        deleted_count = 0
+        total_rows = len(sorted_rows)
 
         try:
             if excel_app:
                 excel_app.ScreenUpdating = False
+                excel_app.Calculation = -4135  # xlCalculationManual
 
-            for row in sorted_rows:
-                worksheet.Rows(row).Delete()
-                deleted_count += 1
-                logger.info(f"Đã xóa dòng {row}")
+            range_address = ",".join(f"{r}:{r}" for r in sorted_rows)
+            worksheet.Range(range_address).Delete()
+            logger.info(f"Đã xóa {total_rows} dòng trùng (batch delete)")
 
-            logger.info(f"Đã xóa tổng cộng {deleted_count} dòng trùng")
-            return deleted_count
+            return total_rows
 
         except Exception as e:
-            logger.error(f"Lỗi khi xóa dòng (đã xóa {deleted_count}/{len(sorted_rows)}): {e}")
-            raise RuntimeError(
-                f"Lỗi khi xóa dòng trùng (đã xóa {deleted_count}/{len(sorted_rows)}): {str(e)}"
-            )
+            logger.error(f"Lỗi khi xóa dòng: {e}")
+            raise RuntimeError(f"Lỗi khi xóa dòng trùng: {str(e)}")
         finally:
             if excel_app:
+                excel_app.Calculation = -4105  # xlCalculationAutomatic
                 excel_app.ScreenUpdating = True

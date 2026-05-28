@@ -35,6 +35,19 @@ class ExcelCOMManager:
             self.worksheet = None
             return False
 
+    def _is_workbook_alive(self) -> bool:
+        if self.workbook is None:
+            return False
+        try:
+            _ = self.workbook.Name
+            _ = self.workbook.Sheets.Count
+            return True
+        except Exception:
+            logger.warning("Workbook COM reference bị stale")
+            self.workbook = None
+            self.worksheet = None
+            return False
+
     def _init_excel_app(self) -> None:
         try:
             self.excel_app = win32com.client.Dispatch("Excel.Application")
@@ -103,15 +116,18 @@ class ExcelCOMManager:
     def get_sheet_names(self) -> List[str]:
         if self.workbook is None:
             raise RuntimeError("Chưa mở workbook nào")
-        
+
+        if not self._is_workbook_alive():
+            raise RuntimeError("Workbook đã bị đóng hoặc không còn tồn tại. Vui lòng mở lại file.")
+
         try:
             sheet_names = []
             for sheet in self.workbook.Sheets:
                 sheet_names.append(sheet.Name)
-            
+
             logger.info(f"Lấy được {len(sheet_names)} sheets")
             return sheet_names
-            
+
         except Exception as e:
             logger.error(f"Lỗi khi lấy danh sách sheets: {e}")
             raise RuntimeError(f"Không thể lấy danh sách sheets: {str(e)}")
@@ -281,6 +297,9 @@ class ExcelCOMManager:
         if self.workbook is None:
             raise RuntimeError("Chưa mở workbook nào")
 
+        if not self._is_workbook_alive():
+            raise RuntimeError("Workbook đã bị đóng hoặc không còn tồn tại. Vui lòng mở lại file.")
+
         try:
             source_sheet = self.workbook.Sheets(sheet_name) if sheet_name else self.worksheet
             last_sheet = self.workbook.Sheets(self.workbook.Sheets.Count)
@@ -319,33 +338,46 @@ class ExcelCOMManager:
             logger.error(f"Lỗi khi đổi tên sheet: {e}")
             raise RuntimeError(f"Không thể đổi tên sheet: {str(e)}")
 
-    def _detect_tot_qty_column(self) -> Optional[int]:
+    def _detect_protected_column(self, start_col: int = 7, max_col: int = 52) -> Optional[int]:
         if self.worksheet is None:
             return None
 
         try:
-            for row in range(14, 19):
-                range_str = f"A{row}:AZ{row}"
-                row_values = self.worksheet.Range(range_str).Value
+            start_col_letter = self._number_to_column_letter(start_col)
+            max_col_letter = self._number_to_column_letter(max_col)
 
-                if row_values is None:
-                    continue
+            header_range_str = f"{start_col_letter}14:{max_col_letter}18"
+            header_values = self.worksheet.Range(header_range_str).Value
+            if header_values:
+                for row_idx, row_data in enumerate(header_values):
+                    if row_data:
+                        for col_idx, cell_value in enumerate(row_data):
+                            if cell_value and isinstance(cell_value, str):
+                                cell_lower = cell_value.strip().lower()
+                                if "tot qty" in cell_lower or "total qty" in cell_lower:
+                                    col_num = start_col + col_idx
+                                    col_letter = self._number_to_column_letter(col_num)
+                                    logger.info(f"Tìm thấy Tot QTY header tại {col_letter}{14 + row_idx}")
+                                    return col_num
 
-                cells = row_values[0] if isinstance(row_values[0], tuple) else row_values
+            start_row = self.config.get_start_row()
+            formula_range_str = f"{start_col_letter}{start_row}:{max_col_letter}{start_row}"
+            formula_range = self.worksheet.Range(formula_range_str)
+            formulas = formula_range.Formula
+            if formulas:
+                row_formulas = formulas[0] if isinstance(formulas[0], tuple) else (formulas,)
+                for col_idx, formula in enumerate(row_formulas):
+                    if formula and isinstance(formula, str) and formula.upper().startswith("=SUM"):
+                        col_num = start_col + col_idx
+                        col_letter = self._number_to_column_letter(col_num)
+                        logger.info(f"Tìm thấy công thức SUM tại {col_letter}{start_row}")
+                        return col_num
 
-                for col_idx, cell_value in enumerate(cells):
-                    if cell_value is not None and isinstance(cell_value, str):
-                        cell_lower = cell_value.strip().lower()
-                        if "tot qty" in cell_lower or "total qty" in cell_lower:
-                            col_number = col_idx + 1
-                            logger.info(f"Tìm thấy Tot QTY tại row {row}, col {col_number}")
-                            return col_number
-
-            logger.warning("Không tìm thấy cột Tot QTY trong row 14-18")
+            logger.warning(f"Không tìm thấy cột protected (Tot QTY/SUM) từ cột {start_col} đến {max_col}")
             return None
 
         except Exception as e:
-            logger.warning(f"Lỗi khi detect cột Tot QTY: {e}")
+            logger.warning(f"Lỗi khi detect cột protected: {e}")
             return None
 
     def clear_quantity_columns(self, start_row: Optional[int] = None,
@@ -355,36 +387,68 @@ class ExcelCOMManager:
         if self.worksheet is None:
             raise RuntimeError("Chưa chọn worksheet nào")
 
-        start_row = start_row or self.config.get_start_row()
-        end_row = end_row or self.detect_end_row()
-
-        if end_col is None:
-            detected = self._detect_tot_qty_column()
-            end_col = (detected - 1) if detected else 39
-
         try:
             if self.excel_app:
                 self.excel_app.ScreenUpdating = False
+                self.excel_app.Calculation = -4135  # xlCalculationManual
+
+            start_row = start_row or self.config.get_start_row()
+            end_row = end_row or self.detect_end_row()
+
+            if end_col is None:
+                detected = self._detect_protected_column(start_col)
+                end_col = (detected - 1) if detected else 51
 
             start_col_letter = self._number_to_column_letter(start_col)
             end_col_letter = self._number_to_column_letter(end_col)
             range_str = f"{start_col_letter}{start_row}:{end_col_letter}{end_row}"
 
             target_range = self.worksheet.Range(range_str)
-            cleared_count = int(self.excel_app.WorksheetFunction.CountA(target_range))
             target_range.ClearContents()
 
-            if self.excel_app:
-                self.excel_app.ScreenUpdating = True
+            num_rows = end_row - start_row + 1
+            num_cols = end_col - start_col + 1
+            cleared_estimate = num_rows * num_cols
 
-            logger.info(f"Đã xóa {cleared_count} ô số lượng ({range_str})")
-            return cleared_count
+            logger.info(f"Đã xóa số lượng ({range_str}, ~{cleared_estimate} ô)")
+            return cleared_estimate
 
         except Exception as e:
-            if self.excel_app:
-                self.excel_app.ScreenUpdating = True
             logger.error(f"Lỗi khi xóa số lượng: {e}")
             raise RuntimeError(f"Không thể xóa số lượng: {str(e)}")
+        finally:
+            if self.excel_app:
+                self.excel_app.Calculation = -4105  # xlCalculationAutomatic
+                self.excel_app.ScreenUpdating = True
+
+    def format_header_row_no_decimal(self, header_row: int = 18, start_col: int = 7) -> int:
+        if self.worksheet is None:
+            raise RuntimeError("Chưa chọn worksheet nào")
+
+        try:
+            if self.excel_app:
+                self.excel_app.ScreenUpdating = False
+
+            end_col = self._detect_protected_column(start_col)
+            if end_col is None:
+                end_col = 51
+
+            start_col_letter = self._number_to_column_letter(start_col)
+            end_col_letter = self._number_to_column_letter(end_col)
+            range_str = f"{start_col_letter}{header_row}:{end_col_letter}{header_row}"
+
+            self.worksheet.Range(range_str).NumberFormat = "0"
+
+            formatted_cols = end_col - start_col + 1
+            logger.info(f"Đã format {range_str} về số nguyên ({formatted_cols} cột)")
+            return formatted_cols
+
+        except Exception as e:
+            logger.error(f"Lỗi khi format header row: {e}")
+            raise RuntimeError(f"Không thể format header row: {str(e)}")
+        finally:
+            if self.excel_app:
+                self.excel_app.ScreenUpdating = True
 
     def _column_letter_to_number(self, column: str) -> int:
         column = column.upper()

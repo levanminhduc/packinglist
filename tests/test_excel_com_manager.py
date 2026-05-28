@@ -49,12 +49,11 @@ class TestClearQuantityColumnsBulk(unittest.TestCase):
         self.manager.worksheet.Range.assert_called_once_with("G19:AM59")
         self.manager.worksheet.Range.return_value.ClearContents.assert_called_once()
 
-    def test_returns_count_from_count_a(self):
-        self.manager.excel_app.WorksheetFunction.CountA.return_value = 42
-
+    def test_returns_estimated_count(self):
         result = self.manager.clear_quantity_columns(start_row=19, end_row=59, start_col=7, end_col=39)
 
-        self.assertEqual(result, 42)
+        expected = (59 - 19 + 1) * (39 - 7 + 1)
+        self.assertEqual(result, expected)
 
     def test_screen_updating_toggled(self):
         self.manager.clear_quantity_columns(start_row=19, end_row=59, start_col=7, end_col=39)
@@ -78,20 +77,20 @@ class TestClearQuantityColumnsBulk(unittest.TestCase):
             self.manager.clear_quantity_columns()
 
     def test_uses_detected_tot_qty_column_as_end(self):
-        with patch.object(self.manager, '_detect_tot_qty_column', return_value=14):
+        with patch.object(self.manager, '_detect_protected_column', return_value=14):
             self.manager.clear_quantity_columns(start_row=19, end_row=59)
 
         self.manager.worksheet.Range.assert_called_once_with("G19:M59")
         self.manager.worksheet.Range.return_value.ClearContents.assert_called_once()
 
-    def test_fallback_to_39_when_tot_qty_not_found(self):
-        with patch.object(self.manager, '_detect_tot_qty_column', return_value=None):
+    def test_fallback_to_51_when_protected_col_not_found(self):
+        with patch.object(self.manager, '_detect_protected_column', return_value=None):
             self.manager.clear_quantity_columns(start_row=19, end_row=59)
 
-        self.manager.worksheet.Range.assert_called_once_with("G19:AM59")
+        self.manager.worksheet.Range.assert_called_once_with("G19:AY59")
 
     def test_explicit_end_col_skips_detect(self):
-        with patch.object(self.manager, '_detect_tot_qty_column') as mock_detect:
+        with patch.object(self.manager, '_detect_protected_column') as mock_detect:
             self.manager.clear_quantity_columns(start_row=19, end_row=59, end_col=25)
 
         mock_detect.assert_not_called()
@@ -195,52 +194,61 @@ class TestScanSizesBulk(unittest.TestCase):
             self.manager.scan_sizes()
 
 
-class TestDetectTotQtyColumn(unittest.TestCase):
+class TestDetectProtectedColumn(unittest.TestCase):
 
     def setUp(self):
         with patch.object(ExcelCOMManager, '__init__', lambda self, *a, **kw: None):
             self.manager = ExcelCOMManager()
             self.manager.worksheet = MagicMock()
+            self.manager.config = MagicMock()
+            self.manager.config.get_start_row.return_value = 19
 
-    def _make_row_values(self, col_count: int, tot_qty_col: int = None, text: str = "Tot QTY"):
-        row = [None] * col_count
-        if tot_qty_col is not None:
-            row[tot_qty_col - 1] = text
-        return tuple(row)
+    def _make_header_rows(self, num_cols: int, tot_qty_col_idx: int = None, text: str = "Tot QTY"):
+        rows = []
+        for _ in range(5):
+            row = [None] * num_cols
+            rows.append(tuple(row))
+        if tot_qty_col_idx is not None:
+            row_list = list(rows[0])
+            row_list[tot_qty_col_idx] = text
+            rows[0] = tuple(row_list)
+        return tuple(rows)
 
     def test_finds_tot_qty_at_column_14(self):
-        row_data = self._make_row_values(52, tot_qty_col=14)
-        self.manager.worksheet.Range.return_value.Value = (row_data,)
-        result = self.manager._detect_tot_qty_column()
+        header_data = self._make_header_rows(46, tot_qty_col_idx=7)
+        self.manager.worksheet.Range.return_value.Value = header_data
+        result = self.manager._detect_protected_column()
         self.assertEqual(result, 14)
 
     def test_finds_tot_qty_at_column_40(self):
-        row_data = self._make_row_values(52, tot_qty_col=40)
-        self.manager.worksheet.Range.return_value.Value = (row_data,)
-        result = self.manager._detect_tot_qty_column()
+        header_data = self._make_header_rows(46, tot_qty_col_idx=33)
+        self.manager.worksheet.Range.return_value.Value = header_data
+        result = self.manager._detect_protected_column()
         self.assertEqual(result, 40)
 
     def test_finds_total_qty_variant(self):
-        row_data = self._make_row_values(52, tot_qty_col=20, text="Total QTY")
-        self.manager.worksheet.Range.return_value.Value = (row_data,)
-        result = self.manager._detect_tot_qty_column()
+        header_data = self._make_header_rows(46, tot_qty_col_idx=13, text="Total QTY")
+        self.manager.worksheet.Range.return_value.Value = header_data
+        result = self.manager._detect_protected_column()
         self.assertEqual(result, 20)
 
     def test_case_insensitive(self):
-        row_data = self._make_row_values(52, tot_qty_col=14, text="tot qty")
-        self.manager.worksheet.Range.return_value.Value = (row_data,)
-        result = self.manager._detect_tot_qty_column()
+        header_data = self._make_header_rows(46, tot_qty_col_idx=7, text="tot qty")
+        self.manager.worksheet.Range.return_value.Value = header_data
+        result = self.manager._detect_protected_column()
         self.assertEqual(result, 14)
 
     def test_returns_none_when_not_found(self):
-        row_data = self._make_row_values(52)
-        self.manager.worksheet.Range.return_value.Value = (row_data,)
-        result = self.manager._detect_tot_qty_column()
+        header_data = self._make_header_rows(46)
+        formula_row = (tuple([None] * 46),)
+        self.manager.worksheet.Range.return_value.Value = header_data
+        self.manager.worksheet.Range.return_value.Formula = formula_row
+        result = self.manager._detect_protected_column()
         self.assertIsNone(result)
 
     def test_returns_none_when_no_worksheet(self):
         self.manager.worksheet = None
-        result = self.manager._detect_tot_qty_column()
+        result = self.manager._detect_protected_column()
         self.assertIsNone(result)
 
 

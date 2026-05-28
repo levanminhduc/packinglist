@@ -61,15 +61,16 @@ class TestDeleteRows(unittest.TestCase):
         type(self.com_manager.excel_app).ScreenUpdating = self.screen_updating
         self.detector = DuplicateSizeDetector(self.com_manager)
 
-    def test_deletes_rows_bottom_up(self):
+    def test_deletes_rows_batch(self):
         rows_to_delete = [19, 25, 31]
         result = self.detector.delete_rows(rows_to_delete)
 
         self.assertEqual(result, 3)
 
-        calls = self.com_manager.worksheet.Rows.call_args_list
-        deleted_rows = [call[0][0] for call in calls]
-        self.assertEqual(deleted_rows, [31, 25, 19])
+        range_call = self.com_manager.worksheet.Range.call_args
+        range_address = range_call[0][0]
+        self.assertEqual(range_address, "31:31,25:25,19:19")
+        self.com_manager.worksheet.Range.return_value.Delete.assert_called_once()
 
     def test_screen_updating_toggled(self):
         self.detector.delete_rows([19, 25])
@@ -82,7 +83,7 @@ class TestDeleteRows(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_screen_updating_restored_on_error(self):
-        self.com_manager.worksheet.Rows.return_value.Delete.side_effect = Exception("COM error")
+        self.com_manager.worksheet.Range.return_value.Delete.side_effect = Exception("COM error")
 
         with self.assertRaises(RuntimeError):
             self.detector.delete_rows([19])

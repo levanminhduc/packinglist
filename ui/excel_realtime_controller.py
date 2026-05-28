@@ -59,8 +59,10 @@ class ExcelRealtimeController:
         self._auto_save_pending: bool = False
 
         self._auto_refresh_sizes_timer_id: Optional[str] = None
+        self._auto_refresh_sheets_timer_id: Optional[str] = None
         self._auto_refresh_interval: int = 3000
         self._cached_sizes: List[str] = []
+        self._cached_sheet_names: List[str] = []
 
         self.po_updated: bool = False
         self.color_updated: bool = False
@@ -355,8 +357,9 @@ class ExcelRealtimeController:
             self.current_file = file_path
             
             self.sheet_names = self.com_manager.get_sheet_names()
+            self._cached_sheet_names = self.sheet_names.copy()
             self.sheet_combobox['values'] = self.sheet_names
-            
+
             if self.sheet_names:
                 self.current_sheet = self.com_manager.current_sheet
                 self.sheet_combobox.set(self.current_sheet)
@@ -380,7 +383,8 @@ class ExcelRealtimeController:
             self._highlight_update_buttons()
 
             self._start_auto_refresh_sizes()
-            
+            self._start_auto_refresh_sheets()
+
             logger.info(f"Đã mở file qua COM: {file_path}")
             
         except Exception as e:
@@ -405,12 +409,14 @@ class ExcelRealtimeController:
             self.root.update()
 
             self.sheet_names = self.com_manager.get_sheet_names()
+            self._cached_sheet_names = self.sheet_names.copy()
             self.sheet_combobox['values'] = self.sheet_names
 
             if self.current_sheet in self.sheet_names:
                 self.sheet_combobox.set(self.current_sheet)
             elif self.sheet_names:
-                self.sheet_combobox.set(self.sheet_names[0])
+                self.current_sheet = self.sheet_names[0]
+                self.sheet_combobox.set(self.current_sheet)
 
             self.sheet_status_label.config(
                 text=f"({len(self.sheet_names)} sheets)",
@@ -428,6 +434,19 @@ class ExcelRealtimeController:
     def _copy_sheet(self) -> None:
         if not self.com_manager:
             messagebox.showwarning("Cảnh báo", "Vui lòng mở file Excel trước!")
+            return
+
+        try:
+            self.sheet_names = self.com_manager.get_sheet_names()
+            self._cached_sheet_names = self.sheet_names.copy()
+            self.sheet_combobox['values'] = self.sheet_names
+            self.sheet_status_label.config(
+                text=f"({len(self.sheet_names)} sheets)",
+                foreground="blue"
+            )
+        except Exception as e:
+            logger.error(f"Lỗi khi refresh sheets trước copy: {e}")
+            messagebox.showerror("Lỗi", f"Không thể kết nối với Excel:\n{str(e)}\n\nVui lòng mở lại file.")
             return
 
         progress = CopySheetProgressDialog(self.root)
@@ -475,6 +494,7 @@ class ExcelRealtimeController:
 
             progress.start_step(1)
             cleared = self.com_manager.clear_quantity_columns()
+            self.com_manager.format_header_row_no_decimal()
             progress.complete_step(1)
 
             progress.start_step(2)
@@ -490,6 +510,7 @@ class ExcelRealtimeController:
             progress.start_step(3)
             self.com_manager.show_all_rows()
             self.sheet_names = self.com_manager.get_sheet_names()
+            self._cached_sheet_names = self.sheet_names.copy()
             self.sheet_combobox['values'] = self.sheet_names
             self.sheet_combobox.set(new_sheet_name)
             self.sheet_status_label.config(
@@ -1738,6 +1759,7 @@ class ExcelRealtimeController:
                 restore_screen_updating()
 
                 progress.start_step(5)
+                is_complete, max_box, missing = manager.validate_box_numbers(new_sheet)
                 progress.complete_step(5)
                 progress.finish()
 
@@ -1745,11 +1767,26 @@ class ExcelRealtimeController:
                 self.status_label.config(text=summary)
                 logger.info(f"Xuất danh sách thùng thành công: {summary}")
 
-                self.root.after(1200, lambda: messagebox.showinfo(
-                    "Thành Công",
+                if is_complete and max_box > 0:
+                    validation_msg = f"✅ Xuất đủ {max_box} Thùng (1-{max_box})"
+                elif max_box > 0:
+                    missing_str = ", ".join(str(n) for n in missing[:10])
+                    if len(missing) > 10:
+                        missing_str += f"... (+{len(missing) - 10} số khác)"
+                    validation_msg = f"⚠ Thiếu {len(missing)} thùng: {missing_str}"
+                else:
+                    validation_msg = ""
+
+                sheet_name = new_sheet.Name
+                final_msg = (
                     f"{summary}\n\n"
-                    f"Danh sách thùng đã được xuất vào sheet mới: {new_sheet.Name}\n"
-                    f"Tất cả nội dung đã được căn giữa tự động."
+                    f"Danh sách thùng đã được xuất vào sheet mới: {sheet_name}\n"
+                    f"Tất cả nội dung đã được căn giữa tự động.\n\n"
+                    f"{validation_msg}"
+                )
+
+                self.root.after(1200, lambda msg=final_msg: messagebox.showinfo(
+                    "Thành Công", msg
                 ))
 
             except Exception as e:
@@ -1942,8 +1979,61 @@ class ExcelRealtimeController:
                 self._check_sizes_changed
             )
 
+    def _start_auto_refresh_sheets(self) -> None:
+        self._stop_auto_refresh_sheets()
+        self._auto_refresh_sheets_timer_id = self.root.after(
+            self._auto_refresh_interval,
+            self._check_sheets_changed
+        )
+
+    def _stop_auto_refresh_sheets(self) -> None:
+        if self._auto_refresh_sheets_timer_id is not None:
+            try:
+                self.root.after_cancel(self._auto_refresh_sheets_timer_id)
+            except Exception:
+                pass
+            self._auto_refresh_sheets_timer_id = None
+
+    def _check_sheets_changed(self) -> None:
+        try:
+            if not self.com_manager:
+                return
+
+            new_sheet_names = self.com_manager.get_sheet_names()
+
+            if new_sheet_names != self._cached_sheet_names:
+                logger.info(f"Sheets changed: {len(self._cached_sheet_names)} → {len(new_sheet_names)}")
+                self._cached_sheet_names = new_sheet_names.copy()
+                self.sheet_names = new_sheet_names
+
+                self.sheet_combobox['values'] = self.sheet_names
+
+                if self.current_sheet not in self.sheet_names:
+                    if self.sheet_names:
+                        self.current_sheet = self.sheet_names[0]
+                        self.sheet_combobox.set(self.current_sheet)
+                        try:
+                            self.com_manager.switch_sheet(self.current_sheet)
+                        except Exception:
+                            pass
+                    logger.warning(f"Sheet hiện tại không còn tồn tại, chuyển sang: {self.current_sheet}")
+
+                self.sheet_status_label.config(
+                    text=f"({len(self.sheet_names)} sheets)",
+                    foreground="blue"
+                )
+
+        except Exception as e:
+            logger.error(f"Lỗi khi check sheets changed: {e}")
+        finally:
+            self._auto_refresh_sheets_timer_id = self.root.after(
+                self._auto_refresh_interval,
+                self._check_sheets_changed
+            )
+
     def _on_closing(self) -> None:
         self._stop_auto_refresh_sizes()
+        self._stop_auto_refresh_sheets()
 
         if self._auto_save_timer_id is not None:
             try:

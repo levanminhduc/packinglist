@@ -143,9 +143,9 @@ class PDFImportDialog:
 
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.canvas.bind('<MouseWheel>', self._on_canvas_mousewheel)
-        self.canvas.bind('<Button-4>', lambda e: self._on_canvas_mousewheel_linux(e, 1))
-        self.canvas.bind('<Button-5>', lambda e: self._on_canvas_mousewheel_linux(e, -1))
+        self.dialog.bind_all('<MouseWheel>', self._on_canvas_mousewheel)
+        self.dialog.bind_all('<Button-4>', lambda e: self._on_canvas_mousewheel_linux(e, 1))
+        self.dialog.bind_all('<Button-5>', lambda e: self._on_canvas_mousewheel_linux(e, -1))
 
     def _create_warning_section(self, parent: ttk.Frame) -> None:
         pdf_only = [s for s in self.pdf_data.size_quantities if s not in self.available_sizes]
@@ -299,6 +299,9 @@ class PDFImportDialog:
             self.dialog_config.save_dialog_geometry('pdf_import', width, height, x, y)
         except Exception as e:
             logger.error(f"Lỗi khi lưu geometry dialog: {e}")
+        self.dialog.unbind_all('<MouseWheel>')
+        self.dialog.unbind_all('<Button-4>')
+        self.dialog.unbind_all('<Button-5>')
         self.dialog.destroy()
 
 
